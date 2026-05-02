@@ -1,0 +1,107 @@
+---
+title: "Permissions Reference: All Roles and Access Rights"
+description: "Complete reference for all permissions in RefactKit's RBAC system. Covers what each role can do, how to check permissions, and how to add new resources."
+---
+
+RefactKit's RBAC system is built on Better Auth's `createAccessControl` API. Every organization member is assigned one of three roles — `member`, `admin`, or `owner` — and each role grants a specific set of permissions over resources like members, invitations, and the organization itself. Permissions are enforced server-side in every server function, so unauthorized actions are rejected before any database query runs.
+
+## Roles
+
+| Role | Description |
+|------|-------------|
+| **Member** | Read-only access to the dashboard. Cannot manage other members, invitations, or organization settings. Suitable for end users who need workspace access but no administrative control. |
+| **Admin** | Can manage members (except owners) and invitations. Cannot update or delete the organization itself, and cannot remove members with the Owner role. |
+| **Owner** | Full control over the organization. Can update or delete the organization, manage all members including other admins, and transfer ownership. There must always be at least one owner per organization. |
+
+## Permission matrix
+
+The table below lists every permission in the system and which roles have it.
+
+| Permission | Member | Admin | Owner |
+|------------|:------:|:-----:|:-----:|
+| `dashboard:read` | ✅ | ✅ | ✅ |
+| `member:read` | ❌ | ✅ | ✅ |
+| `member:create` | ❌ | ✅ | ✅ |
+| `member:update` | ❌ | ✅ | ✅ |
+| `member:delete` | ❌ | ❌ | ✅ |
+| `invitation:read` | ❌ | ✅ | ✅ |
+| `invitation:create` | ❌ | ✅ | ✅ |
+| `invitation:update` | ❌ | ❌ | ✅ |
+| `invitation:delete` | ❌ | ✅ | ✅ |
+| `organization:update` | ❌ | ❌ | ✅ |
+| `organization:delete` | ❌ | ❌ | ✅ |
+
+## Checking permissions in code
+
+Use `authClient.organization.hasPermission` to check whether the current user holds a given permission. The method returns a `data` object with a `success` boolean.
+
+```typescript
+import { authClient } from '~/lib/auth-client'
+
+const { data } = await authClient.organization.hasPermission({
+  permission: 'member:create',
+})
+
+if (!data?.success) {
+  throw new Error('You do not have permission to invite members.')
+}
+```
+
+You can use this check in server functions, route loaders, or UI components to conditionally render controls or gate actions.
+
+<Note>
+Permission checks in UI components are for user experience only. Always enforce permissions server-side in your server functions. Client-side checks can be bypassed.
+</Note>
+
+## Adding a new permission resource
+
+When your application needs a resource that does not exist in the default permission set — for example, a billing page — follow these three steps.
+
+**Step 1** — Register the resource and its actions in `lib/auth.ts`:
+
+```typescript
+import { createAccessControl } from 'better-auth/plugins/access'
+
+const ac = createAccessControl({
+  dashboard: ['read'],
+  member: ['read', 'create', 'update', 'delete'],
+  invitation: ['read', 'create', 'update', 'delete'],
+  organization: ['update', 'delete'],
+  billing: ['read', 'manage'], // ← new resource
+})
+```
+
+**Step 2** — Assign the new actions to roles using `ac.newRole`:
+
+```typescript
+const adminRole = ac.newRole({
+  dashboard: ['read'],
+  member: ['read', 'create', 'update'],
+  invitation: ['read', 'create', 'delete'],
+  billing: ['read'], // Admin can view billing
+})
+
+const ownerRole = ac.newRole({
+  ...adminRole.statements,
+  member: ['read', 'create', 'update', 'delete'],
+  invitation: ['read', 'create', 'update', 'delete'],
+  organization: ['update', 'delete'],
+  billing: ['read', 'manage'], // Owner can manage billing
+})
+```
+
+**Step 3** — Check the new permission in any server function or component:
+
+```typescript
+const { data } = await authClient.organization.hasPermission({
+  permission: 'billing:manage',
+})
+```
+
+## Owner protection
+
+Better Auth prevents you from removing the last owner of an organization. If you attempt to delete or demote the only owner, the operation will be rejected. To change ownership, first transfer the owner role to another member, then update or remove the original owner.
+
+<Warning>
+Attempting to remove the last owner of an organization without first transferring ownership will result in an error. Always transfer ownership before leaving or deleting an owner account.
+</Warning>

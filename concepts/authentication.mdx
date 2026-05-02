@@ -1,0 +1,95 @@
+---
+title: "Sign-Up, Sign-In, OAuth, and Sessions in RefactKit"
+description: "RefactKit uses Better Auth for sign-in, Google OAuth, email verification, and password reset — with OWASP-compliant security built in by default."
+keywords: ["authentication", "sign-in", "sign-up", "Better Auth", "OAuth", "Google", "email verification", "password reset"]
+---
+
+RefactKit handles authentication through [Better Auth](https://better-auth.com), a self-hosted identity layer that ships with email/password sign-in, Google OAuth, email verification, and password reset out of the box. Every auth endpoint is hardened against common web application vulnerabilities from day one — you don't need to configure rate limiting, session security, or brute-force protection yourself.
+
+## Sign-up
+
+To create an account, a user fills in their name, email address, and a password. Passwords must be **at least 12 characters** and no more than 128 characters.
+
+<Steps>
+  <Step title="Fill in the sign-up form">
+    Navigate to `/signup` and enter your name, email, and password. Google sign-up is also available as a one-click alternative.
+  </Step>
+  <Step title="Check your inbox">
+    After submitting, you'll always see a "check your inbox" confirmation — regardless of whether the email is already registered. This is intentional: the same screen appears for new accounts and existing ones alike to prevent account enumeration.
+  </Step>
+  <Step title="Click the verification link">
+    Open the verification email and click the link to activate your account. The link expires after 30 minutes. Without verification, sign-in is blocked.
+  </Step>
+  <Step title="Sign in">
+    Once verified, navigate to `/login` and sign in with your credentials. You'll be redirected to your organization dashboard, or to the onboarding flow if you haven't created an organization yet.
+  </Step>
+</Steps>
+
+<Note>
+  The "check your inbox" screen is identical whether you're signing up for the first time or using an email that's already registered. If the email already exists, the real account owner receives a security notification email instead. This OWASP anti-enumeration pattern means an attacker cannot determine whether an email address is registered in your system.
+</Note>
+
+## Sign-in
+
+Signing in at `/login` requires your verified email and password. After a successful sign-in:
+
+- A session cookie (`HttpOnly`, `Secure`, `SameSite=Lax`) is set in your browser.
+- You are redirected to your most recent organization dashboard, or to `/onboarding` if you have no organizations yet.
+- If you arrived at the login page from a protected route, you are sent back to your original destination.
+
+Sign-in via Google is also available. Clicking the Google button on the login page starts the OAuth flow and lands you on the dashboard without a separate verification step.
+
+**Error messages are always generic.** The sign-in form never tells you whether the email doesn't exist or whether the password was wrong — it shows the same message either way. This prevents an attacker from using the login form to enumerate valid email addresses.
+
+## Email verification
+
+Email verification is required before you can sign in. This is enforced server-side: unverified accounts cannot authenticate.
+
+If your verification email expires or doesn't arrive, use the resend option on the sign-in page. Verification links expire after 30 minutes.
+
+## Forgot and reset password
+
+<Steps>
+  <Step title="Request a reset link">
+    Navigate to `/forgot-password` and enter your email address. You'll see the "check your inbox" confirmation regardless of whether the email is registered — the same anti-enumeration behavior as sign-up.
+  </Step>
+  <Step title="Click the link in your email">
+    Open the password reset email and click the link. Reset tokens expire in **30 minutes** and can only be used once.
+  </Step>
+  <Step title="Set a new password">
+    At `/reset-password`, enter and confirm a new password. The same 12-character minimum applies. After submitting, you're redirected to sign in with your new credentials.
+  </Step>
+</Steps>
+
+<Note>
+  Resetting your password immediately invalidates all of your existing sessions across every device. You will need to sign in again on each one.
+</Note>
+
+## Google OAuth
+
+Google sign-in is available on both the sign-up and sign-in pages. Clicking the Google button redirects to Google's consent screen, and on success, you're returned to `/dashboard`. No email verification step is required for OAuth accounts — Google has already verified the address.
+
+## Session behavior
+
+Sessions last **7 days** and are stored as encrypted cookies. The session is automatically refreshed when you make a request after 24 hours, so active users stay signed in without interruption.
+
+<Tip>
+  RefactKit uses a JWE (JSON Web Encryption, AES-256-GCM) cookie cache for sessions. When your server handles a request, it checks the encrypted session cookie first before hitting the database — eliminating a database round-trip on every authenticated request. The cache has a 5-minute TTL, so session revocations (like after a password reset) take effect within that window.
+</Tip>
+
+## Security defaults at a glance
+
+| Control | Value |
+|---|---|
+| Minimum password length | 12 characters |
+| Maximum password length | 128 characters |
+| Sign-in rate limit | 5 attempts per minute |
+| Sign-up rate limit | 3 attempts per minute |
+| Forgot password rate limit | 3 attempts per minute |
+| Password reset token expiry | 30 minutes |
+| Session duration | 7 days |
+| Session cookie | HttpOnly, Secure, SameSite=Lax |
+| Session cache | JWE-encrypted, 5-minute TTL |
+| Sessions revoked on password reset | Yes |
+
+Rate limits are persisted in the database, so they survive serverless restarts and cold starts on Vercel — brute-force attempts cannot bypass the limit by triggering new function instances.

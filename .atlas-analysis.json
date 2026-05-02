@@ -1,0 +1,90 @@
+{
+  "projectType": "saas",
+  "projectName": "RefactKit",
+  "projectDescription": "A production-ready multi-tenant SaaS boilerplate with authentication, organizations, RBAC, and internationalization — built on React 19, TanStack, and Drizzle ORM.",
+  "theme": "almond",
+  "primaryColor": "#f9f4f1",
+  "lightColor": "#a79383",
+  "darkColor": "#64defc",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "environment-variables"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/multitenancy",
+              "concepts/authentication",
+              "concepts/rbac",
+              "concepts/organizations"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/adding-pages",
+              "guides/server-functions",
+              "guides/file-uploads",
+              "guides/internationalization",
+              "guides/theming"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/database",
+              "configuration/email",
+              "configuration/storage",
+              "configuration/deployment"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/permissions",
+              "reference/tech-stack",
+              "reference/troubleshooting"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Multi-tenant organization workspaces with full data isolation",
+    "RBAC with Owner, Admin, and Member roles",
+    "OWASP-compliant authentication via Better Auth (email/password + OAuth)",
+    "5-language internationalization with RTL support",
+    "File uploads via Supabase Storage with server-side security",
+    "Type-safe full-stack with TanStack Start, Router, Query, and Form",
+    "Vercel, Cloudflare, and Node.js deployment targets via Nitro v3",
+    "shadcn/ui design system with Tailwind CSS v4 and dark mode"
+  ],
+  "publicApiSurface": [
+    "signUp.email({ name, email, password })",
+    "signIn.email({ email, password })",
+    "auth.api.getSession({ headers })",
+    "organization.hasPermission({ permission })",
+    "createServerFn({ method })",
+    "orgBySlugQuery(slug)",
+    "getOrgBySlug({ data: { slug } })",
+    "uploadFile (storage-fns.ts)",
+    "getGalleryImages (gallery-fns.ts)",
+    "getDashboardStats (dashboard-fns.ts)",
+    "npx drizzle-kit push",
+    "npx drizzle-kit studio",
+    "pnpm dev",
+    "pnpm build",
+    "pnpm test",
+    "pnpm test:e2e"
+  ]
+}

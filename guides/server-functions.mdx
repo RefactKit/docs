@@ -1,0 +1,218 @@
+---
+title: "Write Type-Safe Server Functions with TanStack Start"
+description: "Server functions in RefactKit run exclusively on the server using TanStack Start. Learn the standard pattern for auth, validation, and database queries."
+keywords: ["server functions", "createServerFn", "TanStack Start", "Zod", "authentication", "authorization"]
+---
+
+Server functions are the backbone of RefactKit's backend. Created with `createServerFn` from `@tanstack/react-start`, they execute exclusively on the Nitro v3 server — never in the browser bundle — and are called directly from components or route loaders as if they were ordinary async functions. Every server function in the boilerplate follows the same four-step security pattern: validate, authenticate, authorize, execute.
+
+## The four-step security pattern
+
+<Steps>
+
+<Step title="Validate input with Zod">
+
+Parse the incoming `data` argument through a Zod schema before touching anything else. This catches type mismatches and missing fields at the boundary, before any database calls happen.
+
+```typescript
+import { z } from 'zod'
+
+const { name, organizationId } = z
+  .object({
+    name: z.string().min(1),
+    organizationId: z.string(),
+  })
+  .parse(data)
+```
+
+`z.parse()` throws a `ZodError` if validation fails. TanStack Start surfaces this as a rejected promise that you can catch on the client.
+
+</Step>
+
+<Step title="Authenticate — read the session from cookies">
+
+Call `auth.api.getSession()` with the current request headers. The session is stored in an encrypted JWE cookie — no database hit when the cache is warm.
+
+```typescript
+import { getRequest } from '@tanstack/react-start/server'
+import { auth } from '../../lib/auth'
+
+const request = getRequest()
+const session = await auth.api.getSession({ headers: request.headers })
+if (!session) throw new Error('Unauthorized')
+```
+
+</Step>
+
+<Step title="Authorize — verify org membership and role">
+
+Query the `member` table to confirm the authenticated user actually belongs to the target organization. Optionally enforce a minimum role.
+
+```typescript
+import { and, eq } from 'drizzle-orm'
+import { db } from '../../db/index'
+import { member } from '../../db/schema'
+
+const userMembership = await db.query.member.findFirst({
+  where: and(
+    eq(member.organizationId, organizationId),
+    eq(member.userId, session.user.id),
+  ),
+})
+
+if (!userMembership) throw new Error('Forbidden')
+
+// For owner-only actions:
+if (userMembership.role !== 'owner') throw new Error('Forbidden')
+```
+
+</Step>
+
+<Step title="Execute business logic">
+
+With input validated and identity confirmed, run your database queries, storage operations, or external API calls. Return a plain serializable value — TanStack Start serializes it for the client automatically.
+
+```typescript
+const result = await db
+  .insert(myTable)
+  .values({ name, organizationId })
+  .returning()
+
+return { item: result[0] }
+```
+
+</Step>
+
+</Steps>
+
+## GET and POST examples
+
+Use `method: 'GET'` for read operations and `method: 'POST'` for writes, deletions, and anything with side effects. This matches HTTP semantics and allows TanStack Query to cache GET results correctly.
+
+<CodeGroup>
+
+```typescript GET — read data
+// src/server/dashboard-fns.ts
+import { createServerFn } from '@tanstack/react-start'
+import { getRequest } from '@tanstack/react-start/server'
+import { and, count, eq } from 'drizzle-orm'
+import { z } from 'zod'
+import { db } from '../../db/index'
+import { galleryImage, invitation, member } from '../../db/schema'
+import { auth } from '../../lib/auth'
+
+export const getOrgStats = createServerFn({ method: 'GET' }).handler(async ({ data }) => {
+  const { organizationId } = z.object({ organizationId: z.string() }).parse(data)
+
+  const request = getRequest()
+  const session = await auth.api.getSession({ headers: request.headers })
+  if (!session) throw new Error('Unauthorized')
+
+  const [memberRes] = await db
+    .select({ count: count() })
+    .from(member)
+    .where(eq(member.organizationId, organizationId))
+
+  return { memberCount: memberRes.count }
+})
+```
+
+```typescript POST — write data
+// src/server/org-fns.ts
+import { createServerFn } from '@tanstack/react-start'
+import { getRequest } from '@tanstack/react-start/server'
+import { and, eq } from 'drizzle-orm'
+import { z } from 'zod'
+import { db } from '../../db/index'
+import { member, organization } from '../../db/schema'
+import { auth } from '../../lib/auth'
+
+export const updateOrganization = createServerFn({ method: 'POST' }).handler(async ({ data }) => {
+  const { organizationId, name } = z
+    .object({ organizationId: z.string(), name: z.string().min(1).optional() })
+    .parse(data)
+
+  const request = getRequest()
+  const session = await auth.api.getSession({ headers: request.headers })
+  if (!session) throw new Error('Unauthorized')
+
+  const userMembership = await db.query.member.findFirst({
+    where: and(eq(member.organizationId, organizationId), eq(member.userId, session.user.id)),
+  })
+
+  if (!userMembership || (userMembership.role !== 'admin' && userMembership.role !== 'owner')) {
+    throw new Error('Only admins or owners can update organization settings')
+  }
+
+  await db
+    .update(organization)
+    .set({ ...(name && { name: name.trim() }) })
+    .where(eq(organization.id, organizationId))
+
+  return { success: true }
+})
+```
+
+</CodeGroup>
+
+## Calling server functions from a component
+
+Server functions are called with a `{ data: ... }` argument. On the client, they behave like any other async function:
+
+```tsx
+import { updateOrganization } from '@/server/org-fns'
+
+async function handleSubmit(values: { organizationId: string; name: string }) {
+  await updateOrganization({ data: values })
+}
+```
+
+When used inside a TanStack Query mutation:
+
+```tsx
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { updateOrganization } from '@/server/org-fns'
+
+const queryClient = useQueryClient()
+
+const mutation = useMutation({
+  mutationFn: (values: { organizationId: string; name: string }) =>
+    updateOrganization({ data: values }),
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['org'] })
+  },
+})
+```
+
+## Server function files in `src/server/`
+
+Each file groups functions by domain. Keep new functions in the appropriate existing file, or create a new file for a distinct domain.
+
+| File | Responsibility |
+|------|---------------|
+| `auth-fns.ts` | Session retrieval, updating the current user's profile |
+| `org-fns.ts` | Create, read, update, delete organizations; membership validation |
+| `dashboard-fns.ts` | Aggregate organization statistics (member count, storage usage, etc.) |
+| `gallery-fns.ts` | Gallery image CRUD, scoped to an organization |
+| `storage-fns.ts` | Supabase file uploads — always server-only |
+| `query-keys.ts` | `queryOptions` factories that pair cache keys with server function calls |
+
+## Updating the query key registry
+
+After writing a new server function, add a corresponding `queryOptions` entry in `src/server/query-keys.ts`. This keeps cache keys consistent between SSR loaders and client-side `useQuery` calls:
+
+```typescript
+// src/server/query-keys.ts
+import { queryOptions } from '@tanstack/react-query'
+import { getMyData } from './my-fns'
+
+export const myDataQuery = (orgId: string) =>
+  queryOptions({
+    queryKey: ['my-data', orgId] as const,
+    queryFn: () => getMyData({ data: { orgId } }),
+  })
+```
+
+<Warning>
+Never import a server function inside a file that is also imported by client-only modules (e.g., component files that don't use `createFileRoute`). TanStack Start tree-shakes server functions from the client bundle based on the `use server` boundary — importing them in shared modules can break this boundary and expose server code to the browser.
+</Warning>

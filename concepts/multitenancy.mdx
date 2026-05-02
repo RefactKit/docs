@@ -1,0 +1,112 @@
+---
+title: "How RefactKit Enforces Multi-Tenancy and Isolation"
+description: "Every workspace in RefactKit is isolated by organization. Learn how tenant separation is enforced at the data layer and what it means for your application."
+keywords: ["multi-tenancy", "organizations", "tenant isolation", "organizationId", "workspace"]
+---
+
+RefactKit is built multi-tenant from the ground up. Every piece of data in your application belongs to an organization, and access to that data is validated on every request — not as an optional safeguard, but as a structural guarantee baked into the architecture. Understanding how this works will help you extend RefactKit confidently without accidentally breaking tenant boundaries.
+
+## What "multi-tenancy" means in RefactKit
+
+In RefactKit, the term **organization** is the unit of tenancy. When a user creates or joins an organization, they get a workspace — a fully isolated environment where their data, members, and settings are completely separate from every other organization in your system.
+
+A single user account can belong to multiple organizations simultaneously. Switching between them means switching workspaces: different data, different members, potentially different roles.
+
+<CardGroup cols={2}>
+  <Card title="Isolated by design" icon="lock">
+    Data never crosses organization boundaries. Each tenant's records are scoped to their `organizationId` and enforced server-side on every query.
+  </Card>
+  <Card title="One user, many orgs" icon="users">
+    A user can be a Member of one organization, an Admin of another, and an Owner of a third — all from the same account.
+  </Card>
+</CardGroup>
+
+## How data isolation is enforced
+
+### The `organizationId` column
+
+Every tenant-scoped database table includes an `organizationId` foreign key. This is the foundation of RefactKit's data isolation — there is no opt-in, no middleware to wire up separately, and no chance of a table "forgetting" to be tenant-aware.
+
+```typescript
+export const galleryImage = pgTable("gallery_image", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  url: text("url").notNull(),
+  organizationId: text("organization_id")
+    .notNull()
+    .references(() => organization.id, { onDelete: 'cascade' }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("gallery_image_organizationId_idx").on(table.organizationId),
+])
+```
+
+When you add your own tables, follow the same pattern: include `organizationId`, reference it with a cascade delete, and add an index on the column since it's queried on every tenant-scoped request.
+
+### Server-side membership validation
+
+Carrying `organizationId` in the database is necessary but not sufficient. Every server function that reads or writes tenant data also verifies that the requesting user is actually a member of that organization. This check happens before any query executes:
+
+```typescript
+export const getMyData = createServerFn({ method: 'GET' }).handler(async ({ data }) => {
+  const { slug } = z.object({ slug: z.string() }).parse(data)
+
+  // 1. Authenticate — session from cookie
+  const session = await auth.api.getSession({ headers: getRequest().headers })
+  if (!session) throw new Error('Unauthorized')
+
+  // 2. Resolve org by slug
+  const org = await db.query.organization.findFirst({
+    where: eq(organization.slug, slug),
+  })
+  if (!org) throw new Error('Not found')
+
+  // 3. Authorize — verify membership
+  const membership = await db.query.member.findFirst({
+    where: and(
+      eq(member.organizationId, org.id),
+      eq(member.userId, session.user.id)
+    ),
+  })
+  if (!membership) throw new Error('Forbidden')
+
+  // 4. Query scoped to this org only
+  return db.query.myTable.findMany({
+    where: eq(myTable.organizationId, org.id),
+  })
+})
+```
+
+This pattern — authenticate, resolve org, verify membership, then query — is used consistently throughout `src/server/org-fns.ts` and `src/server/dashboard-fns.ts`. Follow it in any server function you add.
+
+## The organization slug and URL structure
+
+Each organization has a human-readable **slug** — a URL-safe identifier derived from the organization's name (e.g., `acme-corp`). The slug is globally unique and drives the workspace URL pattern:
+
+```
+/organizations/:slug/dashboard
+/organizations/:slug/members
+/organizations/:slug/gallery
+/organizations/:slug/settings
+```
+
+When a user navigates to `/organizations/acme-corp/dashboard`, the route loader calls `getOrgBySlug("acme-corp")`, which verifies membership before returning any data. If the user isn't a member of that organization, the server returns `null` and the route redirects rather than leaking information about the organization's existence.
+
+## Workspace concept: one user, multiple organizations
+
+A user's workspace is determined by which organization they are currently viewing. The session stores an `activeOrganizationId`, and TanStack Router uses the URL slug to scope all data fetching to the correct tenant.
+
+Switching organizations is as simple as navigating to a different slug URL. Components that display org-specific data use the slug as part of their TanStack Query cache key, so switching orgs triggers a fresh data fetch automatically:
+
+```typescript
+// Cache key includes the slug — switching orgs = different cache entry
+export const orgBySlugQuery = (slug: string) =>
+  queryOptions({
+    queryKey: ['org', slug] as const,
+    queryFn: () => getOrgBySlug({ data: { slug } }),
+  })
+```
+
+<Note>
+  When an organization is deleted, all of its data is automatically removed via cascade deletes. Every tenant-scoped table references `organization.id` with `{ onDelete: 'cascade' }`, so members, invitations, gallery images, and any tables you add will be cleaned up in a single database operation.
+</Note>

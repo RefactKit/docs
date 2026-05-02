@@ -1,0 +1,127 @@
+---
+title: "Role-Based Access Control: Owners, Admins, Members"
+description: "RefactKit ships with three roles — Member, Admin, and Owner — each with specific permissions. Learn what each role can do and how to add your own."
+keywords: ["RBAC", "roles", "permissions", "Member", "Admin", "Owner", "access control", "organizations"]
+---
+
+RefactKit uses a resource-action permission model built on top of Better Auth's `createAccessControl`. Every organization member has one of three roles — Member, Admin, or Owner — and each role grants a specific set of permissions over resources like members, invitations, and the organization itself. Permissions are checked server-side on every relevant request.
+
+## The three roles
+
+<CardGroup cols={3}>
+  <Card title="Member" icon="user">
+    Can view the organization dashboard. Has no management access — cannot read the member list, send invitations, or change any settings.
+  </Card>
+  <Card title="Admin" icon="shield">
+    Can manage members (except owners) and send invitations. Can view the member list and revoke invitations. Cannot delete members, transfer ownership, or delete the organization.
+  </Card>
+  <Card title="Owner" icon="key">
+    Full control. Can do everything an Admin can, plus delete members, update or delete the organization, and manage invitation status. Every organization must have at least one Owner.
+  </Card>
+</CardGroup>
+
+## Permission matrix
+
+| Permission | Member | Admin | Owner |
+|---|:---:|:---:|:---:|
+| `dashboard:read` | ✅ | ✅ | ✅ |
+| `member:read` | — | ✅ | ✅ |
+| `member:create` | — | ✅ | ✅ |
+| `member:update` | — | ✅ | ✅ |
+| `member:delete` | — | — | ✅ |
+| `invitation:read` | — | ✅ | ✅ |
+| `invitation:create` | — | ✅ | ✅ |
+| `invitation:update` | — | — | ✅ |
+| `invitation:delete` | — | ✅ | ✅ |
+| `organization:update` | — | — | ✅ |
+| `organization:delete` | — | — | ✅ |
+
+## How roles are assigned
+
+When a user creates an organization, they are automatically assigned the **Owner** role. When a user accepts an invitation, they receive the role that was specified at invite time (Member or Admin). A user's role can be changed later by an Admin or Owner through the organization members page.
+
+## Checking permissions in your code
+
+Use `authClient.organization.hasPermission()` to check whether the current user has a specific permission before executing sensitive logic. Pass the permission string in `resource:action` format:
+
+```typescript
+import { authClient } from '@/lib/auth-client'
+
+// Check if the current user can manage invitations
+const { data, error } = await authClient.organization.hasPermission({
+  permission: { invitation: ['create'] },
+})
+
+if (!data?.success) {
+  // User lacks this permission — show an error or hide the UI element
+}
+```
+
+For server-side checks, the pattern in RefactKit is to query the `member` table directly and inspect the role:
+
+```typescript
+import { db } from '../../db/index'
+import { member } from '../../db/schema'
+import { and, eq } from 'drizzle-orm'
+
+const membership = await db.query.member.findFirst({
+  where: and(
+    eq(member.organizationId, orgId),
+    eq(member.userId, session.user.id)
+  ),
+})
+
+if (!membership || membership.role !== 'owner') {
+  throw new Error('Forbidden')
+}
+```
+
+## Adding a new permission resource
+
+If your product has capabilities beyond what the built-in resources cover — for example, a billing page or an analytics section — you can extend the access control definition in `lib/auth.ts`:
+
+```typescript
+// lib/auth.ts
+
+// 1. Add the new resource and its actions
+const ac = createAccessControl({
+  dashboard: ['read'],
+  member: ['read', 'create', 'update', 'delete'],
+  invitation: ['read', 'create', 'update', 'delete'],
+  organization: ['update', 'delete'],
+  billing: ['read', 'manage'],  // ← new resource
+})
+
+// 2. Assign the new permissions to roles
+const adminRole = ac.newRole({
+  dashboard: ['read'],
+  member: ['read', 'create', 'update'],
+  invitation: ['read', 'create', 'delete'],
+  billing: ['read'],              // Admins can view billing
+})
+
+const ownerRole = ac.newRole({
+  dashboard: ['read'],
+  member: ['read', 'create', 'update', 'delete'],
+  invitation: ['read', 'create', 'update', 'delete'],
+  organization: ['update', 'delete'],
+  billing: ['read', 'manage'],   // Owners can manage billing
+})
+
+// 3. Check the new permission in a server function or component
+const { data } = await authClient.organization.hasPermission({
+  permission: { billing: ['manage'] },
+})
+```
+
+<Note>
+  After modifying `lib/auth.ts`, run `npx drizzle-kit push` if your changes introduce any new database columns. Permission definitions themselves are in-memory, but if you add new Better Auth plugins alongside them, schema changes may be required.
+</Note>
+
+## Owner protection
+
+Better Auth prevents removing the last Owner from an organization. Before removing or demoting the only Owner, ownership must be transferred to another member. This applies to both role changes and member removal — the operation will be rejected if it would leave the organization without an Owner.
+
+<Warning>
+  If you delete your own account while you are the sole Owner of an organization, the entire organization and all its data will also be deleted. Transfer ownership first if you want the organization to continue existing.
+</Warning>

@@ -1,0 +1,105 @@
+---
+title: "Set Up Supabase File Storage for Avatars and Images"
+description: "Configure Supabase Storage for avatars and gallery images in RefactKit. Create the avatars bucket, set public access policies, and add your storage credentials."
+keywords: ["storage", "supabase", "avatars", "file upload", "s3", "bucket", "service role key"]
+---
+
+RefactKit uses Supabase Storage — an S3-compatible object store — to handle user avatars, organization logos, and gallery images. All file uploads run server-side through a dedicated server function, which keeps your service role key out of the browser. This page covers retrieving your credentials, creating the required bucket, and setting the correct access policy.
+
+## Prerequisites
+
+- A Supabase project already created (see [Set Up Your Database with Supabase](/configuration/database))
+- Access to your project's **SQL Editor** or **Storage** section in the Supabase dashboard
+
+## Environment variables
+
+Storage requires two variables in your `.env.local`:
+
+```env
+VITE_SUPABASE_URL="https://xxxxxxxxxxxx.supabase.co"
+SUPABASE_SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+<Warning>
+  `SUPABASE_SERVICE_ROLE_KEY` bypasses Supabase Row Level Security entirely. It must **never** be prefixed with `VITE_` and must **never** be imported in any client-side module. Keep it server-only. RefactKit enforces this by only referencing it in `src/server/storage-fns.ts`, which runs exclusively on the Nitro server.
+</Warning>
+
+## Steps
+
+<Steps>
+  <Step title="Get your project URL and service role key">
+    1. In your Supabase project dashboard, go to **Project Settings → API**.
+    2. Under **Project URL**, copy the URL — this is your `VITE_SUPABASE_URL`.
+    3. Under **Project API keys**, find the `service_role` entry (labeled "secret") and copy that value — this is your `SUPABASE_SERVICE_ROLE_KEY`.
+
+    ```env
+    VITE_SUPABASE_URL="https://xxxxxxxxxxxx.supabase.co"
+    SUPABASE_SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    ```
+  </Step>
+
+  <Step title="Create the avatars bucket">
+    RefactKit expects a bucket named `avatars` with public read access. You can create it via SQL or through the Supabase dashboard.
+
+    <Tabs>
+      <Tab title="SQL Editor">
+        In your Supabase project, go to **SQL Editor** and run the following:
+
+        ```sql
+        -- Create the avatars bucket (public read)
+        INSERT INTO storage.buckets (id, name, public)
+        VALUES ('avatars', 'avatars', true)
+        ON CONFLICT (id) DO NOTHING;
+        ```
+
+        The `ON CONFLICT` clause makes the statement safe to re-run — it will not fail if the bucket already exists.
+      </Tab>
+      <Tab title="Supabase Dashboard">
+        1. Go to **Storage** in the left sidebar.
+        2. Click **New bucket**.
+        3. Enter `avatars` as the bucket name.
+        4. Toggle **Public bucket** on.
+        5. Click **Save**.
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Set the public read policy">
+    The bucket being public controls the URL format, but you also need a storage policy that allows unauthenticated SELECT access. Run this in the SQL Editor:
+
+    ```sql
+    -- Allow public read access for avatar images
+    CREATE POLICY "Public Access" ON storage.objects
+    FOR SELECT USING (bucket_id = 'avatars');
+    ```
+
+    This policy lets anyone with the file URL retrieve avatar images — which is required for displaying user and organization avatars in the UI without requiring a signed URL on every request.
+
+    <Note>
+      Upload operations are always authenticated and run through the server function in `src/server/storage-fns.ts` using the service role key. The public policy only applies to read (GET) access.
+    </Note>
+  </Step>
+</Steps>
+
+## How uploads work
+
+All file uploads go through a server function to protect the service role key:
+
+1. The client sends the file as `FormData` to the server function.
+2. The server validates file size (max 2 MB) and content type.
+3. A random filename is generated to prevent collisions.
+4. The file is uploaded to Supabase Storage via the service role client.
+5. The public URL is returned to the client and stored in the database.
+
+The upload logic lives in `src/server/storage-fns.ts`. The Supabase client for storage is initialized in `lib/supabase.ts` using `SUPABASE_SERVICE_ROLE_KEY`.
+
+## Variable reference
+
+| Variable | Where to find it | Client-safe? |
+|---|---|---|
+| `VITE_SUPABASE_URL` | Supabase → Project Settings → API → Project URL | Yes — safe to expose in the browser |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API → `service_role` key | **No** — server-only, never prefix with `VITE_` |
+
+<Tip>
+  If you add more buckets (for example, a `gallery` bucket), repeat the same SQL pattern: insert the bucket with `public = true` and add a SELECT policy scoped to that `bucket_id`.
+</Tip>

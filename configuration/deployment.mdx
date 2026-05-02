@@ -1,0 +1,134 @@
+---
+title: "Deploy RefactKit to Vercel, Cloudflare, or Node.js"
+description: "Deploy RefactKit to Vercel, Cloudflare Workers, or Node.js via Nitro v3 presets. Covers the pre-deploy checklist, required env vars, and build commands."
+keywords: ["deployment", "vercel", "cloudflare", "node.js", "nitro", "production", "environment variables", "build"]
+---
+
+RefactKit uses [Nitro v3](https://nitro.unjs.io) as its server engine, which means a single codebase can target Vercel, Cloudflare Workers, or a standalone Node.js server by changing one environment variable at build time. Vercel is the primary and recommended deployment target — the `package.json` build script defaults to `NITRO_PRESET=vercel`. This page covers the pre-deploy checklist, Vercel setup, and alternative deployment targets.
+
+## Pre-deploy checklist
+
+Run these commands in order before every production deployment. They catch type errors, test regressions, and schema drift before your code reaches users:
+
+```bash
+pnpm check           # Biome lint + format check
+pnpm test            # Unit and integration tests (Vitest)
+pnpm test:e2e        # End-to-end tests (Playwright)
+npx drizzle-kit push # Sync schema changes to production database
+```
+
+<Warning>
+  Run `npx drizzle-kit push` against your **production** database by ensuring `DATABASE_URL` in your environment points to the production Supabase project before running the command. Schema drift between your code and the live database will cause runtime errors.
+</Warning>
+
+## Deployment targets
+
+<Tabs>
+  <Tab title="Vercel">
+    Vercel is the recommended deployment target. The `package.json` build command is pre-configured:
+
+    ```bash
+    # build command (already set in package.json)
+    NITRO_PRESET=vercel vite build
+    ```
+
+    ### Deploy steps
+
+    1. Push your repository to GitHub (or GitLab / Bitbucket).
+    2. Go to [vercel.com](https://vercel.com) → **Add New Project** → import your repository.
+    3. Vercel auto-detects the build command from `package.json`. Confirm the framework preset is **Other** (not Next.js).
+    4. Before clicking **Deploy**, open **Environment Variables** and add every variable from the table below.
+    5. Click **Deploy**.
+
+    ### Required environment variables
+
+    Set these in **Vercel Dashboard → Project → Settings → Environment Variables**:
+
+    | Variable | Example value | Notes |
+    |---|---|---|
+    | `DATABASE_URL` | `postgresql://postgres.[ref]:...@...pooler.supabase.com:6543/postgres` | Must use port 6543 (transaction pooler) |
+    | `BETTER_AUTH_SECRET` | output of `openssl rand -base64 32` | Minimum 32 characters |
+    | `BETTER_AUTH_URL` | `https://your-domain.com` | Your Vercel deployment URL or custom domain |
+    | `RESEND_API_KEY` | `re_...` | From Resend dashboard |
+    | `EMAIL_FROM` | `RefactKit <noreply@yourdomain.com>` | Must match a verified Resend domain |
+    | `VITE_SUPABASE_URL` | `https://xxxx.supabase.co` | From Supabase → Project Settings → API |
+    | `SUPABASE_SERVICE_ROLE_KEY` | `eyJhbGci...` | From Supabase → Project Settings → API → service_role |
+    | `VITE_APP_URL` | `https://your-domain.com` | Optional — overrides the auth client base URL |
+
+    <Warning>
+      Rotating `BETTER_AUTH_SECRET` invalidates **all existing user sessions** immediately. Every logged-in user will be signed out. Plan any secret rotation during low-traffic windows and communicate the impact in advance.
+    </Warning>
+
+    <Note>
+      `VITE_` prefixed variables are embedded into the client bundle at build time. Never set `SUPABASE_SERVICE_ROLE_KEY` or `RESEND_API_KEY` with a `VITE_` prefix — doing so would expose them to every browser that loads your app.
+    </Note>
+
+    ### Custom domain
+
+    After the initial deployment succeeds, go to **Vercel Dashboard → Project → Settings → Domains** and add your custom domain. Update `BETTER_AUTH_URL` and `VITE_APP_URL` to match the custom domain, then redeploy.
+  </Tab>
+
+  <Tab title="Cloudflare Workers">
+    To deploy to Cloudflare Workers, change the Nitro preset and build:
+
+    ```bash
+    NITRO_PRESET=cloudflare-module vite build
+    ```
+
+    The build output targets the `cloudflare-module` worker format. Deploy using the Wrangler CLI:
+
+    ```bash
+    npx wrangler deploy
+    ```
+
+    Set environment variables via the Cloudflare dashboard (**Workers & Pages → your worker → Settings → Variables**) or in your `wrangler.toml`. The same variables required for Vercel apply here.
+
+    <Note>
+      Cloudflare Workers runs in an edge runtime, not Node.js. Confirm that all dependencies in your code are compatible with the Workers runtime before deploying. The `postgres.js` client used by Drizzle requires TCP connections — you may need to use Supabase's HTTP-based query API or a Workers-compatible PostgreSQL driver for this target.
+    </Note>
+  </Tab>
+
+  <Tab title="Node.js">
+    To produce a standalone Node.js server binary, use the `node` preset:
+
+    ```bash
+    NITRO_PRESET=node vite build
+    ```
+
+    After the build completes, start the server:
+
+    ```bash
+    node .output/server/index.mjs
+    ```
+
+    The server listens on the port defined by the `PORT` environment variable (defaults to `3000`). Set all required environment variables in your server environment before starting the process, or use a process manager like PM2:
+
+    ```bash
+    PORT=8080 \
+    DATABASE_URL="..." \
+    BETTER_AUTH_SECRET="..." \
+    BETTER_AUTH_URL="https://your-domain.com" \
+    node .output/server/index.mjs
+    ```
+
+    <Tip>
+      For production Node.js deployments, use a reverse proxy (Nginx or Caddy) in front of the Nitro server to handle TLS termination and set the `x-forwarded-for` header. RefactKit reads this header for IP-based rate limiting.
+    </Tip>
+  </Tab>
+</Tabs>
+
+## Environment variable reference
+
+The table below summarizes every variable and where it is consumed:
+
+| Variable | Required | Runtime | Description |
+|---|:---:|---|---|
+| `DATABASE_URL` | ✅ | Server | Supabase PostgreSQL connection string — port 6543 |
+| `BETTER_AUTH_SECRET` | ✅ | Server | Session signing secret — minimum 32 characters |
+| `BETTER_AUTH_URL` | ✅ | Server | Public URL of your app — used in email links and OAuth callbacks |
+| `RESEND_API_KEY` | ✅ | Server | Resend API key for transactional email |
+| `EMAIL_FROM` | ✅ | Server | Sender address shown in outgoing emails |
+| `VITE_SUPABASE_URL` | ✅ | Both | Supabase project URL — embedded in client bundle |
+| `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Server only | Supabase service role key — bypasses RLS, never expose client-side |
+| `BETTER_AUTH_API_KEY` | Optional | Server | Enables the Better Auth admin dashboard at `/api/auth/dashboard` |
+| `VITE_APP_URL` | Optional | Both | Overrides the base URL for the auth client |

@@ -1,0 +1,53 @@
+---
+title: "RefactKit Technology Stack: All Packages and Versions"
+description: "Full list of technologies, frameworks, and libraries included in RefactKit — with versions, roles, and links to official documentation for each dependency."
+---
+
+RefactKit is built on a carefully selected set of technologies that prioritize type safety, performance, and universal deployment. Every dependency listed below is already installed and wired together in the boilerplate. This page is a quick reference for understanding what each package does, which version you are running, and where to find its official documentation.
+
+## Full dependency table
+
+| Layer | Technology | Version | Role |
+|-------|------------|---------|------|
+| **Meta-framework** | [TanStack Start](https://tanstack.com/start) | latest | Full-stack React framework. Provides SSR, file-based routing, server functions, and hydration via Nitro v3. |
+| **Server engine** | [Nitro v3](https://nitro.build) | 3.0.x-beta | Universal deployment engine powering SSR, server functions, and API routes. Single build targets Vercel, Cloudflare, and Node.js. |
+| **UI framework** | [React](https://react.dev) | 19.2+ | Core UI library. Uses React 19 features including Server Functions, Actions, and the `use` hook. |
+| **Router** | [TanStack Router](https://tanstack.com/router) | latest | Type-safe, file-based routing with `beforeLoad` guards, loaders, search param validation, and code splitting. |
+| **Data fetching** | [TanStack Query](https://tanstack.com/query) | 5.x | Server-state synchronization. Provides the `queryOptions` factory pattern and `ensureQueryData` for SSR cache seeding. |
+| **Forms** | [TanStack Form](https://tanstack.com/form) | 1.x | Type-safe form state management with Zod validators and field-level error tracking. |
+| **Tables** | [TanStack Table](https://tanstack.com/table) | 8.x | Headless table engine used for the members list, gallery grid, and other data tables. |
+| **Authentication** | [Better Auth](https://better-auth.com) | 1.6+ | Full auth system: email/password, OAuth (Google), organizations, RBAC, rate limiting, and OWASP-compliant session management. |
+| **ORM** | [Drizzle ORM](https://orm.drizzle.team) | 0.45+ | Type-safe SQL query builder. Schema-as-code with `pgTable`, relational queries, and zero-overhead generated SQL. |
+| **Database** | [Supabase (PostgreSQL)](https://supabase.com) | — | Managed PostgreSQL with connection pooling (port 6543), Row Level Security, and a visual dashboard. |
+| **Storage** | [Supabase Storage](https://supabase.com/docs/guides/storage) | — | S3-compatible object storage for avatars, logos, and gallery images. All uploads run server-side via the service role key. |
+| **Styling** | [Tailwind CSS](https://tailwindcss.com) | v4 | Utility-first CSS with `@theme` directives, CSS variables, and ultra-fast Vite plugin compilation. |
+| **UI primitives** | [shadcn/ui (Base UI)](https://ui.shadcn.com) | 4.5+ | Accessible WAI-ARIA components built on Base UI primitives. Preset-based theming powered by Tailwind CSS v4. |
+| **Animations** | [Framer Motion](https://www.framer.com/motion/) | 12.x | Smooth page transitions and micro-interactions. |
+| **Email** | [Resend](https://resend.com) | — | Transactional email API for verification, password reset, invitations, and security alerts. |
+| **i18n** | [i18next](https://www.i18next.com) | 26.x | Custom React context wrapping i18next. Supports 5 languages (EN, FR, ES, PT, AR) with RTL and cookie-based locale persistence. |
+| **Validation** | [Zod](https://zod.dev) | 4.x | Runtime type validation for server functions, form inputs, and search params. |
+| **Build tool** | [Vite](https://vite.dev) | 8.x | Next-gen build tool with plugins for TanStack Start, React, Tailwind CSS, and Nitro. |
+| **Code quality** | [Biome](https://biomejs.dev) | 2.4+ | Rust-based linter and formatter replacing ESLint and Prettier. Up to 10x faster. |
+| **Unit tests** | [Vitest](https://vitest.dev) | 4.x | Fast unit and integration testing with JSDOM, React Testing Library, and v8 coverage. |
+| **E2E tests** | [Playwright](https://playwright.dev) | 1.59+ | Cross-browser end-to-end testing across Chromium, Firefox, and WebKit. Auto-starts the dev server before running tests. |
+| **Type system** | [TypeScript](https://www.typescriptlang.org) | 5.x | Strict-mode TypeScript across the entire codebase — client, server, and database schema. |
+
+## Dependency coupling warnings
+
+Several packages in RefactKit are tightly coupled and must not be updated independently. Upgrading one without the other can cause the SSR server to crash or break authentication.
+
+<Warning>
+**TanStack Start + Nitro v3** are tightly coupled. The `nitro` package is pinned to `3.0.x-beta`. Do not run `pnpm update` on `@tanstack/react-start`, `@tanstack/react-router`, or `nitro` without verifying compatibility first — version mismatches will crash the SSR server.
+</Warning>
+
+<Warning>
+**Better Auth (v1.6+)** updates often introduce new database columns, particularly for the `organization` plugin. Always check the Better Auth changelog before updating and run `npx drizzle-kit push` immediately after to sync your schema.
+</Warning>
+
+<Warning>
+**React 19**: RefactKit uses React 19 Server Functions and Actions. Do not install UI libraries that require React 18 as a peer dependency, and never downgrade the core `react` or `react-dom` packages.
+</Warning>
+
+<Warning>
+Do not run `pnpm update` across all packages blindly. The pinned versions of `nitro`, `@tanstack/react-start`, and `better-auth` exist for stability reasons. Update these packages one at a time, verify the build and tests pass after each update.
+</Warning>

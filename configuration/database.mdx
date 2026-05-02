@@ -1,0 +1,102 @@
+---
+title: "Connect RefactKit to a Supabase PostgreSQL Database"
+description: "Connect RefactKit to Supabase PostgreSQL. Get your connection string, push the schema with Drizzle Kit, and use Drizzle Studio for visual data management."
+keywords: ["database", "supabase", "postgresql", "drizzle", "schema", "connection string"]
+---
+
+RefactKit uses Supabase as its managed PostgreSQL provider and Drizzle ORM as the type-safe query layer. You need to create a Supabase project, copy your connection string into `.env.local`, and push the schema before the app can start. This page walks you through each step.
+
+## Prerequisites
+
+- A [Supabase](https://supabase.com) account (free tier is sufficient)
+- `DATABASE_URL` is the only variable required to complete database setup
+
+## Steps
+
+<Steps>
+  <Step title="Create a Supabase project">
+    Go to [supabase.com](https://supabase.com), sign in, and click **New Project**. Choose an organization, enter a project name, set a strong database password, and select the region closest to your users. Supabase will provision your PostgreSQL instance — this usually takes about a minute.
+  </Step>
+
+  <Step title="Get your connection string">
+    1. In your project dashboard, go to **Project Settings → Database**.
+    2. Scroll down to the **Connection string** section and select the **URI** tab.
+    3. Click **Transaction pooler** to switch to the pooled connection (port `6543`).
+    4. Copy the URI — this is your `DATABASE_URL`.
+
+    ```env
+    DATABASE_URL="postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres"
+    ```
+
+    Replace `[ref]`, `[password]`, and `[region]` with the values from your project.
+
+    <Warning>
+      You must use port **6543** (Transaction pooler), not port 5432. Port 5432 uses a direct connection that does not work in serverless environments like Vercel because each function invocation would exhaust the connection limit. The transaction pooler multiplexes connections and is required for production.
+    </Warning>
+  </Step>
+
+  <Step title="Add the variable to your environment file">
+    Copy `.env.example` to `.env.local` if you haven't already, then paste your `DATABASE_URL`:
+
+    ```env
+    DATABASE_URL="postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres"
+    ```
+
+    <Note>
+      Drizzle reads `DATABASE_URL` at both build time (for schema pushes) and runtime (for queries). Make sure the variable is present in both your local `.env.local` and your hosting environment.
+    </Note>
+  </Step>
+
+  <Step title="Push the schema to Supabase">
+    Run the following command from the project root. Drizzle Kit reads your schema file and applies the table definitions directly to your Supabase database:
+
+    ```bash
+    npx drizzle-kit push
+    ```
+
+    You will see a list of tables being created (users, sessions, organizations, members, invitations, gallery images, and the Better Auth rate-limit tables). Re-run this command every time you modify `db/schema.ts`.
+
+    <Note>
+      `drizzle-kit push` applies schema changes directly without generating migration files. If you prefer version-controlled migrations, use `npx drizzle-kit generate` instead, which writes SQL files to the `./drizzle` directory.
+    </Note>
+  </Step>
+
+  <Step title="Open Drizzle Studio (optional)">
+    Drizzle Studio is a browser-based visual editor for your database. Start it with:
+
+    ```bash
+    npx drizzle-kit studio
+    ```
+
+    The studio opens at [https://local.drizzle.studio](https://local.drizzle.studio). You can browse tables, run queries, and inspect your data without leaving your terminal workflow.
+  </Step>
+</Steps>
+
+## Database commands reference
+
+| Command | Purpose |
+|---|---|
+| `npx drizzle-kit push` | Sync `db/schema.ts` changes directly to PostgreSQL |
+| `npx drizzle-kit studio` | Open the visual database browser at `local.drizzle.studio` |
+| `npx drizzle-kit generate` | Generate versioned SQL migration files into `./drizzle` |
+
+<Tip>
+  Run `npx drizzle-kit push` after every schema change — including after updating the `better-auth` package, which sometimes introduces new columns to the organization and session tables.
+</Tip>
+
+## How the connection is configured
+
+The database client in `db/index.ts` connects via `postgres.js` with settings tuned for the Supabase transaction pooler:
+
+```typescript
+const client = postgres(process.env.DATABASE_URL, {
+  ssl: 'require',
+  prepare: false,    // Required for Supabase Pooler (port 6543)
+  max: 10,
+  idle_timeout: 20,
+  connect_timeout: 10,
+})
+export const db = drizzle(client, { schema })
+```
+
+The `prepare: false` option disables prepared statements, which are not supported by the transaction pooler. Do not remove this option.

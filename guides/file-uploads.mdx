@@ -1,0 +1,171 @@
+---
+title: "Securely Upload Files to Supabase Storage in RefactKit"
+description: "RefactKit handles all file uploads server-side through storage-fns.ts. Learn how to upload avatars and images securely using the built-in upload workflow."
+keywords: ["file upload", "Supabase Storage", "avatars", "images", "storage-fns", "FormData"]
+---
+
+All file uploads in RefactKit go through `src/server/storage-fns.ts` — a server function that runs exclusively on Nitro. This design keeps `SUPABASE_SERVICE_ROLE_KEY` off the client entirely: the browser never holds credentials, and Supabase Row Level Security policies are never bypassed from untrusted code.
+
+## How the upload workflow works
+
+The client collects a file, wraps it in `FormData`, and calls the `uploadImage` server function. The server validates the file, uploads it to Supabase Storage using the service role key, and returns the public URL. The client stores that URL in local state and uses it for an instant preview.
+
+```
+Client selects file
+      │
+      ▼
+Builds FormData { file, bucket }
+      │
+      ▼
+Calls uploadImage() server function
+      │
+      ├── Validate: size ≤ 2 MB, content type
+      ├── Generate random filename
+      ├── Upload ArrayBuffer to Supabase Storage
+      └── Return { url: publicUrl }
+            │
+            ▼
+Client sets state → instant preview via derived state
+```
+
+## Set up the avatars bucket
+
+Before your first upload, create the `avatars` bucket in Supabase. Run this in your **Supabase Dashboard → SQL Editor**:
+
+```sql
+-- Create the avatars bucket (public read)
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('avatars', 'avatars', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Allow public read access for avatar images
+CREATE POLICY "Public Access" ON storage.objects
+FOR SELECT USING (bucket_id = 'avatars');
+```
+
+For a gallery or any other bucket, replace `'avatars'` with your bucket name and adjust the policy as needed.
+
+## The `uploadImage` server function
+
+`src/server/storage-fns.ts` is the single upload entry point. It accepts a `FormData` body with two fields — `file` and `bucket`:
+
+```typescript
+// src/server/storage-fns.ts
+import { createServerFn } from '@tanstack/react-start'
+import { supabase } from '@/lib/supabase'
+
+export const uploadImage = createServerFn({ method: 'POST' }).handler(
+  async ({ data }: { data: FormData }) => {
+    if (!supabase) {
+      throw new Error('Supabase client not initialized. Check your environment variables.')
+    }
+
+    const file = data.get('file') as File
+    const bucket = (data.get('bucket') as string) || 'avatars'
+
+    if (!file) throw new Error('No file provided')
+
+    // Reject files larger than 2 MB
+    if (file.size > 2 * 1024 * 1024) {
+      throw new Error('File size exceeds 2MB limit')
+    }
+
+    const fileExt = file.name.split('.').pop()
+    const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`
+
+    // Convert to ArrayBuffer — Supabase JS handles this on the server
+    const arrayBuffer = await file.arrayBuffer()
+
+    const { error: uploadError } = await supabase.storage
+      .from(bucket)
+      .upload(fileName, arrayBuffer, {
+        contentType: file.type,
+        upsert: true,
+      })
+
+    if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`)
+
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from(bucket).getPublicUrl(fileName)
+
+    return { url: publicUrl }
+  },
+)
+```
+
+## Call the upload function from a component
+
+Pass a `FormData` object directly — do not JSON-encode binary data.
+
+```tsx
+import { uploadImage } from '@/server/storage-fns'
+
+async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+  const file = event.target.files?.[0]
+  if (!file) return
+
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('bucket', 'avatars')
+
+  const { url } = await uploadImage({ data: formData })
+  setUploadedImg(url)
+}
+```
+
+## Show an instant preview with derived state
+
+After a successful upload, you want to display the new image immediately — before the user saves the form — while still falling back to the existing value from the database. Use a single derived constant rather than two separate state variables:
+
+```tsx
+function AvatarUploader({ defaultValue }: { defaultValue?: string }) {
+  const [uploadedImg, setUploadedImg] = useState<string | null>(null)
+
+  // Derived state: new upload takes priority; fall back to saved value
+  const currentImg = uploadedImg ?? defaultValue
+
+  return (
+    <div className="flex flex-col gap-4">
+      {currentImg && (
+        <img
+          src={currentImg}
+          alt="Avatar preview"
+          className="size-16 rounded-full object-cover"
+        />
+      )}
+      <input
+        type="file"
+        accept="image/*"
+        onChange={handleFileChange}
+      />
+    </div>
+  )
+}
+```
+
+This pattern avoids flicker: `currentImg` updates the moment `setUploadedImg` is called, without waiting for a round-trip to the database.
+
+## Validation rules
+
+The built-in `uploadImage` function enforces the following:
+
+| Rule | Value |
+|------|-------|
+| Maximum file size | 2 MB |
+| Content type | Passed through from `file.type`; add explicit checks for stricter control |
+| Filename | Random alphanumeric string — prevents path traversal and collisions |
+| Bucket | Defaults to `avatars`; pass any valid bucket name in `FormData` |
+
+To add content-type validation, insert a check before the upload call:
+
+```typescript
+const allowedTypes = ['image/jpeg', 'image/png', 'image/webp']
+if (!allowedTypes.includes(file.type)) {
+  throw new Error('Only JPEG, PNG, and WebP files are allowed')
+}
+```
+
+<Warning>
+`SUPABASE_SERVICE_ROLE_KEY` bypasses Supabase Row Level Security entirely. Never prefix it with `VITE_` and never reference it from any file that is part of the client bundle. It must only be used inside server functions in `src/server/` or server-only library files like `lib/supabase.ts`.
+</Warning>

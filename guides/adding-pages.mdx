@@ -1,0 +1,164 @@
+---
+title: "Add New Routes and Pages to Your RefactKit Project"
+description: "Learn how to create new protected pages in RefactKit using TanStack Router's file-based routing, with server-side data loading and TanStack Query caching."
+keywords: ["routing", "pages", "TanStack Router", "file-based routing", "server functions", "queryOptions"]
+---
+
+RefactKit uses TanStack Router's file-based routing, where every file in `src/routes/` becomes a URL. Protected, org-scoped pages live under `src/routes/_app/organizations/$slug/` and automatically inherit session verification and organization context from their parent layouts — so you focus on your page logic, not auth boilerplate.
+
+## Route naming conventions
+
+The directory prefix determines who can access a route and what layout wraps it:
+
+| Prefix | Access level | Layout | Example pages |
+|--------|-------------|--------|---------------|
+| `_auth/` | Public | `AuthShell` (centered card) | `login.tsx`, `signup.tsx` |
+| `_app/` | Authenticated users only | Dashboard shell with sidebar | `settings.tsx` |
+| `_app/organizations/$slug/` | Authenticated + org member | Inherits `_app` | `dashboard.tsx`, `members.tsx` |
+
+The `$slug` segment is a dynamic parameter — TanStack Router fills it with the URL segment and makes it available via `Route.useParams()`.
+
+## Add a new org-scoped page
+
+The following three steps create a fully functional, SSR-ready page scoped to an organization. The pattern mirrors every existing page in the boilerplate.
+
+<Steps>
+
+<Step title="Create the route file">
+
+Create `src/routes/_app/organizations/$slug/my-page.tsx`. The filename becomes the URL path segment — this page will be reachable at `/organizations/:slug/my-page`.
+
+```tsx
+// src/routes/_app/organizations/$slug/my-page.tsx
+import { createFileRoute } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
+import { myDataQuery } from '@/server/query-keys'
+import { Route as OrgRoute } from './route'
+
+export const Route = createFileRoute('/_app/organizations/$slug/my-page')({
+  loader: async ({ context, params }) => {
+    // Seed the TanStack Query cache during SSR.
+    // The component will read from cache — no second network request.
+    await context.queryClient.ensureQueryData(myDataQuery(params.slug))
+  },
+  component: MyPage,
+})
+
+function MyPage() {
+  const { slug } = Route.useParams()
+  const { org } = OrgRoute.useLoaderData()
+
+  const { data, isLoading } = useQuery(myDataQuery(slug))
+
+  // key={org.id} resets all component state when the user switches orgs
+  return (
+    <div key={org.id} className="flex flex-col gap-10 max-w-7xl mx-auto w-full py-4 px-4 sm:px-6">
+      <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+        {org.name}
+      </h1>
+      {/* Your page UI */}
+    </div>
+  )
+}
+```
+
+The parent route file (`route.tsx`) already validates that the user is a member of the organization. If `getOrgBySlug` returns `null`, it redirects to `/organizations` before your loader runs.
+
+</Step>
+
+<Step title="Create the server function">
+
+Create `src/server/my-fns.ts`. Server functions run exclusively on the Nitro server — they never ship to the client bundle.
+
+```typescript
+// src/server/my-fns.ts
+import { createServerFn } from '@tanstack/react-start'
+import { getRequest } from '@tanstack/react-start/server'
+import { and, eq } from 'drizzle-orm'
+import { z } from 'zod'
+import { db } from '../../db/index'
+import { member } from '../../db/schema'
+import { auth } from '../../lib/auth'
+
+export const getMyData = createServerFn({ method: 'GET' }).handler(async ({ data }) => {
+  // 1. Validate input
+  const { slug } = z.object({ slug: z.string() }).parse(data)
+
+  // 2. Authenticate — read session from request cookie
+  const request = getRequest()
+  const session = await auth.api.getSession({ headers: request.headers })
+  if (!session) throw new Error('Unauthorized')
+
+  // 3. Authorize — verify org membership
+  const userMembership = await db.query.member.findFirst({
+    where: and(
+      eq(member.organizationId, slug), // use org id in real code
+      eq(member.userId, session.user.id),
+    ),
+  })
+  if (!userMembership) throw new Error('Forbidden')
+
+  // 4. Execute business logic
+  return { message: `Hello from ${slug}` }
+})
+```
+
+</Step>
+
+<Step title="Register the query option">
+
+Add a `queryOptions` factory to `src/server/query-keys.ts`. Defining the cache key here means the SSR loader and the client component share exactly the same key — TanStack Query will not re-fetch data that was already seeded on the server.
+
+```typescript
+// src/server/query-keys.ts  (add to existing file)
+import { queryOptions } from '@tanstack/react-query'
+import { getMyData } from './my-fns'
+
+export const myDataQuery = (slug: string) =>
+  queryOptions({
+    queryKey: ['my-data', slug] as const,
+    queryFn: () => getMyData({ data: { slug } }),
+  })
+```
+
+</Step>
+
+</Steps>
+
+## Access loader data from parent routes
+
+The `$slug/route.tsx` loader fetches the organization and exposes it to all child routes. Import the parent route and call `useLoaderData()`:
+
+```tsx
+import { Route as OrgRoute } from './route'
+
+function MyPage() {
+  const { org, role } = OrgRoute.useLoaderData()
+  // org.id, org.name, org.slug, org.logo
+  // role: 'owner' | 'admin' | 'member'
+}
+```
+
+No extra fetch needed — the data is already in the loader context from SSR.
+
+## After a mutation, invalidate the cache
+
+When a user action changes server state, invalidate both the query cache and the router loader cache to keep the UI consistent:
+
+```tsx
+import { useQueryClient } from '@tanstack/react-query'
+import { useRouter } from '@tanstack/react-router'
+
+const queryClient = useQueryClient()
+const router = useRouter()
+
+async function handleSave() {
+  await myMutation({ data: formValues })
+  await queryClient.invalidateQueries({ queryKey: ['my-data', slug] })
+  await router.invalidate()
+}
+```
+
+<Tip>
+Always add `key={org.id}` on the top-level container of org-scoped pages. When the user switches organizations, React unmounts and remounts the component, clearing all local state and preventing stale data from the previous org from flashing on screen.
+</Tip>

@@ -1,0 +1,61 @@
+---
+title: "RefactKit: Production-Ready Multi-Tenant SaaS Starter"
+description: "RefactKit is a production-ready full-stack SaaS boilerplate with authentication, organizations, RBAC, and i18n — built on React 19 and TanStack."
+---
+
+RefactKit gives you everything you need to ship a multi-tenant SaaS product: authentication, organization workspaces, role-based access control, file storage, and internationalization — all wired together with end-to-end type safety. Clone the repo, configure your environment, and go from zero to production in minutes.
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Clone, configure, and launch your first RefactKit app in under 10 minutes.
+  </Card>
+  <Card title="Core Concepts" icon="book-open" href="/concepts/multitenancy">
+    Understand how multi-tenancy, organizations, and RBAC work together.
+  </Card>
+  <Card title="Guides" icon="map" href="/guides/adding-pages">
+    Step-by-step walkthroughs for common tasks like adding pages and file uploads.
+  </Card>
+  <Card title="Configuration" icon="gear" href="/configuration/database">
+    Set up your database, email, storage, and deployment targets.
+  </Card>
+</CardGroup>
+
+## What's included
+
+RefactKit ships as a complete, runnable application. Every feature below works out of the box.
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/concepts/authentication">
+    Email/password sign-up and sign-in, email verification, password reset, and OAuth via Google — all OWASP-compliant.
+  </Card>
+  <Card title="Organizations & RBAC" icon="users" href="/concepts/organizations">
+    Multi-tenant workspaces with Owner, Admin, and Member roles. Invite teammates via email.
+  </Card>
+  <Card title="File Storage" icon="cloud-arrow-up" href="/guides/file-uploads">
+    Server-side file uploads to Supabase Storage — secure avatar and gallery image management.
+  </Card>
+  <Card title="Internationalization" icon="globe" href="/guides/internationalization">
+    Five built-in languages (EN, FR, ES, PT, AR) with full RTL support.
+  </Card>
+</CardGroup>
+
+## Get started in 4 steps
+
+<Steps>
+  <Step title="Clone and install">
+    Clone the repository and install dependencies with pnpm.
+  </Step>
+  <Step title="Configure your environment">
+    Copy `.env.example` to `.env.local` and fill in your Supabase, Resend, and Better Auth credentials.
+  </Step>
+  <Step title="Push the database schema">
+    Run `npx drizzle-kit push` to create all tables in your Supabase PostgreSQL database.
+  </Step>
+  <Step title="Start the dev server">
+    Run `pnpm dev` and open [http://localhost:3000](http://localhost:3000) to see your app.
+  </Step>
+</Steps>
+
+<Note>
+  RefactKit Community Edition is free and open-source under the MIT license. Payments and billing features are coming in RefactKit Pro.
+</Note>

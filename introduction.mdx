@@ -1,0 +1,76 @@
+---
+title: "RefactKit Overview: Features, Stack, and Use Cases"
+description: "RefactKit is a production-ready SaaS boilerplate with auth, organizations, RBAC, and i18n. Ship your multi-tenant app without rebuilding common infrastructure."
+keywords: ["saas boilerplate", "multi-tenant", "react", "tanstack", "better auth", "drizzle", "supabase"]
+---
+
+RefactKit is a full-stack SaaS boilerplate that gives you authentication, multi-tenant organization workspaces, role-based access control, file storage, and internationalization — all wired together with end-to-end type safety. Instead of spending weeks rebuilding the same infrastructure, you clone the repo, configure your environment variables, and start building your actual product.
+
+## Who it's for
+
+RefactKit is built for developers shipping B2B or B2C SaaS products that need workspace isolation. If your app has multiple customers, each with their own data and users, RefactKit handles the tenant separation for you from day one. Every database table includes an `organizationId`, and every server function validates tenant membership before executing any query.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/concepts/authentication">
+    Email/password sign-up and sign-in, email verification, password reset, and Google OAuth — all with OWASP-compliant security controls including anti-enumeration, rate limiting, and JWE-encrypted sessions.
+  </Card>
+  <Card title="Organizations & multi-tenancy" icon="building" href="/concepts/organizations">
+    Every user belongs to one or more organizations. Data is scoped by `organizationId` across every tenant table. Organization creation, switching, and deletion are all built in.
+  </Card>
+  <Card title="Role-based access control" icon="shield-check" href="/concepts/rbac">
+    Three roles — Owner, Admin, and Member — with a granular resource-action permission model. Permissions are enforced server-side on every request.
+  </Card>
+  <Card title="File storage" icon="cloud-arrow-up" href="/guides/file-uploads">
+    Server-side file uploads to Supabase Storage. Avatar and gallery image management with automatic public URL generation. The service role key never touches the client.
+  </Card>
+  <Card title="Internationalization" icon="globe" href="/guides/internationalization">
+    Five built-in languages: English, French, Spanish, Portuguese, and Arabic. Full RTL support, cookie-based locale persistence, and server-side locale detection.
+  </Card>
+  <Card title="Design system" icon="palette" href="/guides/theming">
+    shadcn/ui components built on Base UI primitives with WAI-ARIA compliance. Tailwind CSS v4 with semantic CSS variables and one-command theme generation.
+  </Card>
+</CardGroup>
+
+## Tech stack
+
+RefactKit combines a carefully selected set of technologies that work well together. The table below covers the most important pieces.
+
+| Layer | Technology |
+|---|---|
+| Meta-framework | TanStack Start (SSR + server functions via Nitro v3) |
+| UI | React 19 with TanStack Router, Query, Form, and Table |
+| Authentication | Better Auth 1.6+ (self-hosted, organizations plugin) |
+| Database | PostgreSQL on Supabase via Drizzle ORM |
+| Storage | Supabase Storage (S3-compatible) |
+| Email | Resend (transactional) |
+| Styling | Tailwind CSS v4 + shadcn/ui on Base UI |
+| i18n | Custom React context wrapping i18next (5 locales) |
+| Testing | Vitest (unit) + Playwright (E2E) |
+| Deployment | Vercel, Cloudflare, Node.js, or AWS via Nitro presets |
+
+## Architecture principles
+
+RefactKit is built around four non-negotiable constraints:
+
+- **Multi-tenancy first.** Every data table includes `organizationId`. Server functions verify tenant membership before executing any query — tenant isolation is structural, not a convention.
+- **Type safety everywhere.** TypeScript strict mode, Drizzle typed SQL, Zod runtime validation, and TanStack typed routes eliminate entire classes of runtime errors.
+- **Security by default.** Anti-enumeration, rate limiting on all auth endpoints, JWE-encrypted session cookies, and audit logging are all built in and pre-configured — no extra setup required.
+- **Universal deployment.** The Nitro v3 engine targets Vercel, Cloudflare Workers, standalone Node.js, and AWS from a single build command.
+
+<Note>
+  RefactKit Community Edition is free and open-source under the **MIT license**. You can use it in commercial products, modify it, and redistribute it without restriction.
+</Note>
+
+## What's coming in Pro
+
+RefactKit Pro is currently in development and will add a complete billing system on top of the Community Edition:
+
+- Stripe subscriptions with per-seat pricing, metered usage, and one-time payments
+- Polar integration for open-source-friendly monetization
+- Self-service customer portal for plan and payment method management
+- Admin dashboard with super-admin impersonation
+- Priority support
+
+Everything in the Community Edition remains free. Pro adds billing infrastructure on top.

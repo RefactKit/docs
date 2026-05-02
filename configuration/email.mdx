@@ -1,0 +1,120 @@
+---
+title: "Send Transactional Emails with Resend in RefactKit"
+description: "Send verification emails, password resets, and invitations with Resend. Learn how to get your API key, verify your sending domain, and configure SMTP variables."
+keywords: ["email", "resend", "smtp", "transactional email", "email verification", "password reset"]
+---
+
+RefactKit delegates all transactional email to [Resend](https://resend.com), a developer-focused email API. You need a Resend account and an API key to send verification emails, password resets, invitation notices, and security alerts. This page covers obtaining your credentials, setting the required environment variables, and what to expect in development versus production.
+
+## Prerequisites
+
+- A [Resend](https://resend.com) account (free tier supports up to 3,000 emails/month)
+- A sending domain you control (required for production only — development works without one)
+
+## Steps
+
+<Steps>
+  <Step title="Create a Resend account">
+    Go to [resend.com](https://resend.com) and sign up. You can start sending immediately from Resend's sandbox domain (`onboarding@resend.dev`) during development — no DNS changes required at this stage.
+  </Step>
+
+  <Step title="Create an API key">
+    1. In the Resend dashboard, click **API Keys** in the left sidebar.
+    2. Click **Create API Key**, give it a name (e.g., `refactkit-dev`), and select the appropriate permission scope.
+    3. Copy the key — it begins with `re_`.
+
+    <Warning>
+      Resend only shows the API key once at creation. Copy it immediately and store it in your password manager before leaving the page.
+    </Warning>
+  </Step>
+
+  <Step title="Set your environment variables">
+    Add the following to your `.env.local` file:
+
+    ```env
+    RESEND_API_KEY="re_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    EMAIL_FROM="RefactKit <noreply@yourdomain.com>"
+    ```
+
+    `EMAIL_FROM` controls the sender name and address shown to recipients. In development you can use `onboarding@resend.dev` as the address. In production it must match a verified domain (see the next step).
+
+    <Note>
+      `RESEND_API_KEY` is also used as the `SMTP_PASSWORD` for SMTP-based sending. See the SMTP configuration section below for details.
+    </Note>
+  </Step>
+
+  <Step title="Verify your sending domain (production)">
+    For production deployments, you must verify the domain in `EMAIL_FROM` to avoid emails being flagged as spam or rejected.
+
+    1. In the Resend dashboard, click **Domains → Add Domain**.
+    2. Enter your domain (e.g., `yourdomain.com`).
+    3. Resend generates SPF and DKIM DNS records. Add them to your DNS provider (Cloudflare, Route 53, etc.).
+    4. DNS propagation typically takes a few minutes to an hour. Resend will confirm when the domain is verified.
+
+    <Warning>
+      Sending from an unverified domain in production will cause emails to land in spam or be blocked entirely by receiving mail servers. Domain verification is mandatory before going live.
+    </Warning>
+  </Step>
+</Steps>
+
+## SMTP configuration
+
+RefactKit also supports SMTP-based sending. Add these variables to your `.env.local` alongside the Resend API key:
+
+```env
+SMTP_HOST="smtp.resend.com"
+SMTP_PORT=465
+SMTP_USER="resend"
+SMTP_PASSWORD="re_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+```
+
+`SMTP_PASSWORD` is your Resend API key. The username is always the literal string `resend` — not your email address or account name.
+
+| Variable | Value | Notes |
+|---|---|---|
+| `SMTP_HOST` | `smtp.resend.com` | Resend's SMTP endpoint |
+| `SMTP_PORT` | `465` | SSL/TLS port |
+| `SMTP_USER` | `resend` | Fixed value — always `resend` |
+| `SMTP_PASSWORD` | `re_...` | Your Resend API key |
+| `EMAIL_FROM` | `Name <address@domain.com>` | Must match a verified domain in production |
+
+## Emails sent by RefactKit
+
+RefactKit uses Resend for the following transactional messages:
+
+| Email type | Trigger | Notes |
+|---|---|---|
+| **Email verification** | User signs up | Sent to confirm the new account's email address |
+| **Password reset** | User requests a password reset | Token expires in 30 minutes; link is single-use |
+| **Invitation** | An admin or owner invites a new member | Includes a link to join the organization |
+| **Sign-up alert** | An existing email tries to sign up again | Anti-enumeration protection — the real account owner is notified silently |
+
+<Note>
+  The sign-up alert is an OWASP anti-enumeration control. When someone tries to register with an email that already has an account, RefactKit returns the same "Check your inbox" screen to the requester but sends the real account owner a security notice via Resend. This prevents user enumeration attacks.
+</Note>
+
+## Development vs. production
+
+<Tabs>
+  <Tab title="Development">
+    During development you do not need a verified domain. Use Resend's sandbox to send test emails to any address:
+
+    ```env
+    RESEND_API_KEY="re_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    EMAIL_FROM="RefactKit <onboarding@resend.dev>"
+    ```
+
+    Emails sent in sandbox mode appear in the **Resend dashboard → Emails** section so you can inspect them without needing a real inbox.
+  </Tab>
+  <Tab title="Production">
+    For production, set `EMAIL_FROM` to an address on your verified domain and update `BETTER_AUTH_URL` to your production URL so that links in emails resolve correctly:
+
+    ```env
+    RESEND_API_KEY="re_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    EMAIL_FROM="RefactKit <noreply@yourdomain.com>"
+    BETTER_AUTH_URL="https://yourdomain.com"
+    ```
+
+    Verify your domain in the Resend dashboard before deploying. See the steps above for DNS record instructions.
+  </Tab>
+</Tabs>

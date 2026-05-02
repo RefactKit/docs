@@ -1,0 +1,104 @@
+---
+title: "Create Organizations and Manage Members in RefactKit"
+description: "Organizations are the core multi-tenant unit in RefactKit. Each org has its own workspace, members, and data — fully isolated from all others."
+keywords: ["organizations", "workspaces", "multi-tenancy", "members", "invitations", "onboarding", "slug"]
+---
+
+An organization is the central unit of your RefactKit application. Every user works within at least one organization, and everything — members, gallery images, settings, and any data you add — belongs to that organization exclusively. A single user account can belong to multiple organizations and switch between them freely.
+
+## Creating an organization
+
+New users land on the onboarding flow at `/onboarding` the first time they sign in. This is where they create their first organization.
+
+<Steps>
+  <Step title="Enter an organization name">
+    Type a name for your organization. The name must be unique across the platform and at least one character long. A URL-friendly slug is automatically derived from the name (e.g., `Acme Corp` → `acme-corp`).
+  </Step>
+  <Step title="Upload a logo (optional)">
+    Add a logo image to help identify the organization. Logos are uploaded server-side and stored in Supabase Storage.
+  </Step>
+  <Step title="Submit">
+    On success, you're redirected to `/organizations/acme-corp/dashboard`. You are automatically assigned the **Owner** role.
+  </Step>
+</Steps>
+
+Users who already belong to at least one organization as an Owner or Admin can create additional organizations. Plain Members cannot create new organizations.
+
+## Organization slugs
+
+Every organization has a **slug** — a unique, URL-safe identifier generated from its name. The slug is used in every workspace URL:
+
+```
+/organizations/acme-corp/dashboard
+/organizations/acme-corp/members
+/organizations/acme-corp/gallery
+/organizations/acme-corp/settings
+```
+
+Slugs are generated automatically when you create an organization, but Owners can update the slug later from organization settings. Changing the slug changes the URL of every page in that workspace.
+
+## Switching between organizations
+
+If you belong to multiple organizations, you can switch between them using the organization switcher in the sidebar. Selecting a different organization navigates you to that organization's dashboard at its slug URL. All data on screen is scoped to the currently active organization — no data from other workspaces bleeds through.
+
+## Inviting members
+
+Admins and Owners can invite people to their organization by email. Invited users receive an email with an acceptance link.
+
+<Steps>
+  <Step title="Open the members page">
+    Navigate to `/organizations/:slug/members` and click the invite button.
+  </Step>
+  <Step title="Enter the invitee's email and role">
+    Specify the email address and choose the role (Member or Admin) the person will have when they join.
+  </Step>
+  <Step title="Invitation email is sent">
+    The invitee receives an email with a link to `/accept-invite?id=...`. Invitations expire after **7 days**.
+  </Step>
+  <Step title="Invitee accepts">
+    When the invitee clicks the link, they are shown the accept-invite page. If they don't have an account yet, they'll be prompted to sign up first. Once they accept, they become a member of the organization with the role you specified.
+  </Step>
+</Steps>
+
+Pending invitations are visible on the members page. Admins and Owners can revoke a pending invitation before it is accepted. Owners can also update the role on a pending invitation.
+
+## Managing membership
+
+From the members page, Admins and Owners can:
+
+- **View** all current members and their roles
+- **Update** a member's role (Admins can update non-Owner members; Owners can update anyone)
+- **Remove** members from the organization (Owner only)
+
+<Warning>
+  An organization must always have at least one Owner. You cannot remove or demote the last Owner. Transfer ownership to another member first.
+</Warning>
+
+## Organization settings
+
+Owners can update the organization's name, slug, and logo from `/organizations/:slug/settings`.
+
+<Tabs>
+  <Tab title="Updating name or slug">
+    Enter a new name or slug and save. Changing the slug updates the URL of the entire workspace — any bookmarks to the old URL will break. RefactKit does not create redirects automatically when a slug changes.
+  </Tab>
+  <Tab title="Updating logo">
+    Upload a new image. The logo is stored in Supabase Storage and referenced by URL in the database. Both the `logo` and `logoUrl` fields on the organization record are updated so the new image appears immediately.
+  </Tab>
+</Tabs>
+
+## Gallery
+
+Each organization has its own image gallery at `/organizations/:slug/gallery`. Gallery images are scoped to the organization — members of other organizations cannot see or access them.
+
+Uploading images to the gallery works through a server-side function (`gallery-fns.ts`) that writes to Supabase Storage and records the URL in the `gallery_image` table with the organization's ID. Images are served from Supabase's public CDN URL.
+
+## Deleting an organization
+
+Only the Owner can delete an organization. The delete action is available in organization settings.
+
+<Warning>
+  Deleting an organization is permanent and cannot be undone. All members, invitations, gallery images, and any other data belonging to the organization are deleted immediately via database cascade. There is no grace period or recovery option.
+</Warning>
+
+When an organization is deleted, members who were only in that organization will have no workspace on their next sign-in and will be redirected to the onboarding flow to create a new one.

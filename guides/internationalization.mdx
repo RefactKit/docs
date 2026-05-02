@@ -1,0 +1,188 @@
+---
+title: "Add Internationalization and Multi-Language Support"
+description: "RefactKit includes five languages — English, French, Spanish, Portuguese, and Arabic with full RTL support. Learn how to use translations and add new locales."
+keywords: ["i18n", "internationalization", "locales", "RTL", "Arabic", "translations", "useI18n"]
+---
+
+RefactKit ships with a custom React context wrapping i18next that is fully compatible with TanStack Start's SSR pipeline. The server detects the user's locale from a cookie before rendering, so the correct language and text direction are set on the initial HTML response — no flash of wrong language on load. Five locales are included out of the box, and adding a new one requires changes to just three files.
+
+## Supported locales
+
+| Locale | Language | Direction | Default font |
+|--------|----------|-----------|-------------|
+| `en` | English | LTR | Google Sans Flex |
+| `fr` | French | LTR | Google Sans Flex |
+| `es` | Spanish | LTR | Google Sans Flex |
+| `pt` | Portuguese | LTR | Google Sans Flex |
+| `ar` | Arabic | RTL | Zain |
+
+The font switches automatically based on `document.dir`. When the locale is `ar`, the `--font-family` CSS variable resolves to `"Zain"`. All other locales use `"Google Sans Flex Variable"`. You can override this per-user through the Appearance settings page.
+
+## Use translations in a component
+
+Import the `useI18n` hook from `@/i18n/context` to access the translation object, the active locale code, and the text direction string:
+
+```tsx
+import { useI18n } from '@/i18n/context'
+
+function WelcomeBanner() {
+  const { t, locale, dir } = useI18n()
+
+  return (
+    <div dir={dir} className="flex flex-col gap-1">
+      <h1 className="text-2xl font-semibold text-foreground">
+        {t.dashboard.welcome.replace('{{org}}', 'Acme Corp')}
+      </h1>
+      <p className="text-sm text-muted-foreground">
+        {t.dashboard.activeMembers}
+      </p>
+    </div>
+  )
+}
+```
+
+The `t` object is fully typed — TypeScript infers the shape from `src/i18n/locales/en.ts`, which serves as the canonical reference for all translation keys. Every other locale file is typed against this shape using `Translations` from `en.ts`.
+
+## Switch the active locale
+
+Call `setLocale()` from `useI18n()` with a valid locale code. It updates React state, writes the new value to the `lk_locale` cookie (valid for 365 days), and flips `document.documentElement.dir` — all in one call:
+
+```tsx
+import { useI18n } from '@/i18n/context'
+import type { Locale } from '@/i18n/index'
+
+function LanguageSwitcher() {
+  const { locale, setLocale } = useI18n()
+
+  const locales: { code: Locale; label: string }[] = [
+    { code: 'en', label: 'English' },
+    { code: 'fr', label: 'Français' },
+    { code: 'es', label: 'Español' },
+    { code: 'pt', label: 'Português' },
+    { code: 'ar', label: 'العربية' },
+  ]
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {locales.map(({ code, label }) => (
+        <button
+          key={code}
+          type="button"
+          onClick={() => setLocale(code)}
+          className={locale === code ? 'font-semibold' : 'text-muted-foreground'}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+```
+
+## How server-side locale detection works
+
+During SSR, the root layout calls `getServerLocale()` — a server function in `src/i18n/index.ts` — which reads the `lk_locale` cookie from the request headers before any React rendering happens:
+
+```typescript
+// src/i18n/index.ts
+export const getServerLocale = createServerFn({ method: 'GET' }).handler(async () => {
+  const request = getRequest()
+  const cookieHeader = request.headers.get('Cookie') ?? ''
+  const match = cookieHeader.match(new RegExp(`(^|; ) ?${LOCALE_COOKIE}=([^;]+)`))
+  const val = match ? match[2] : null
+  if (val === 'ar') return 'ar'
+  if (val === 'es') return 'es'
+  if (val === 'pt') return 'pt'
+  if (val === 'en') return 'en'
+  return 'fr' // default
+})
+```
+
+The detected locale is passed as `initialLocale` to `<I18nProvider>` in the root layout, which sets the initial state before hydration. On the client, the provider keeps locale in React state and propagates changes via context.
+
+## Add a new locale
+
+<Steps>
+
+<Step title="Create the locale file">
+
+Create `src/i18n/locales/de.ts` (or any ISO 639-1 code). Import the `Translations` type from `en.ts` to ensure your file includes every required key:
+
+```typescript
+// src/i18n/locales/de.ts
+import type { Translations } from './en'
+
+export const de: Translations = {
+  common: {
+    RefactKit: 'RefactKit',
+    launch: 'Refact',
+    kit: 'Kit',
+    copyright: '© {{year}} RefactKit. Alle Rechte vorbehalten.',
+    or: 'oder',
+    save: 'Änderungen speichern',
+    saving: 'Wird gespeichert...',
+    cancel: 'Abbrechen',
+    delete: 'Löschen',
+    deleting: 'Wird gelöscht...',
+    create: 'Erstellen',
+    loading: 'Wird geladen...',
+    search: 'Suchen',
+    previous: 'Zurück',
+    next: 'Weiter',
+  },
+  // ... all other keys from en.ts
+}
+```
+
+TypeScript will show a type error for any missing key, so you cannot accidentally ship an incomplete translation.
+
+</Step>
+
+<Step title="Register the locale in index.ts">
+
+Import the new file and add it to the `locales` map and the `Locale` union type:
+
+```typescript
+// src/i18n/index.ts
+import { de } from './locales/de'
+import { ar } from './locales/ar'
+import { en, type Translations } from './locales/en'
+import { es } from './locales/es'
+import { fr } from './locales/fr'
+import { pt } from './locales/pt'
+
+export type Locale = 'en' | 'fr' | 'ar' | 'es' | 'pt' | 'de'
+
+const locales: Record<Locale, Translations> = { en, fr, ar, es, pt, de }
+```
+
+Also update `getServerLocale()` to handle the new cookie value:
+
+```typescript
+if (val === 'de') return 'de'
+```
+
+</Step>
+
+<Step title="Add a font if needed">
+
+If the new language requires a different typeface (e.g., a CJK or Arabic-script font), import it in `src/styles/globals.css` and add a direction or `data-font` rule:
+
+```css
+/* src/styles/globals.css */
+@import "@fontsource/noto-sans-sc";   /* Example: Simplified Chinese */
+
+[data-font="noto-sans-sc"] {
+  --font-family: "Noto Sans SC", sans-serif;
+}
+```
+
+For LTR languages that share the Latin script, no font change is needed — they will inherit `"Google Sans Flex Variable"` automatically.
+
+</Step>
+
+</Steps>
+
+<Note>
+The `getServerLocale()` server function defaults to `'fr'` when no cookie is present. If you want a different default language for new visitors, change the fallback value in `src/i18n/index.ts`.
+</Note>

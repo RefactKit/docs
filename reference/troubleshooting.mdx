@@ -1,0 +1,211 @@
+---
+title: "Troubleshoot Database, Auth, and Deployment Errors"
+description: "Solutions to common problems when setting up or developing with RefactKit, covering database connections, authentication errors, and deployment issues."
+---
+
+Most issues when working with RefactKit fall into a small set of categories: database connectivity, authentication configuration, environment variable mistakes, and version coupling between framework packages. The sections below walk through each known issue with its root cause and the steps to resolve it.
+
+<Tip>
+Before investigating a runtime error, run `npx drizzle-kit studio` to visually inspect your database state. Many issues — including missing columns and out-of-sync schemas — are immediately visible in the Drizzle Studio interface at `https://local.drizzle.studio`.
+</Tip>
+
+<Note>
+TanStack DevTools (query cache inspector and router state viewer) are auto-loaded in development mode. You do not need to configure them. Open your browser's UI and look for the floating TanStack icon in the bottom corner when running `pnpm dev`.
+</Note>
+
+<AccordionGroup>
+  <Accordion title="prepare: false is required for Supabase Pooler — connection fails on port 5432">
+    **Symptom**: Your app fails to connect to the database with an error like `prepared statement ... already exists` or the connection hangs indefinitely.
+
+    **Root cause**: Supabase's Transaction Pooler (port `6543`) does not support PostgreSQL prepared statements. If you use the direct connection string (port `5432`) or forget to set `prepare: false` in the `postgres.js` client, the driver tries to use prepared statements and the connection fails.
+
+    **Solution**: Use port `6543` in your `DATABASE_URL` and ensure `prepare: false` is set in `db/index.ts`:
+
+    ```env
+    # ✅ Correct — Transaction Pooler on port 6543
+    DATABASE_URL="postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres"
+    ```
+
+    ```typescript
+    // db/index.ts
+    const client = postgres(process.env.DATABASE_URL, {
+      ssl: 'require',
+      prepare: false, // Required for Supabase Pooler
+      max: 10,
+    })
+    ```
+
+    If you need the direct connection (e.g., for `drizzle-kit push` during local development), use port `5432` only for that command and keep port `6543` for the runtime `DATABASE_URL`.
+  </Accordion>
+
+  <Accordion title="Database schema out of sync — queries fail after adding or changing a table">
+    **Symptom**: Server functions throw errors like `column "x" does not exist` or `relation "y" does not exist` after you edit `db/schema.ts`.
+
+    **Root cause**: Drizzle ORM's schema file is the source of truth, but changes to it are not automatically applied to your database. You must explicitly push the schema.
+
+    **Solution**: Run the following command every time you change `db/schema.ts`:
+
+    ```bash
+    npx drizzle-kit push
+    ```
+
+    This introspects your current schema, diffs it against the database, and applies the necessary `ALTER TABLE` or `CREATE TABLE` statements. No migration files are created — changes are applied directly.
+
+    <Tip>
+    After pushing, open Drizzle Studio with `npx drizzle-kit studio` to confirm the columns and tables match what you expect before testing the application.
+    </Tip>
+  </Accordion>
+
+  <Accordion title="Rotating BETTER_AUTH_SECRET invalidates all active sessions">
+    **Symptom**: All logged-in users are suddenly signed out after a deployment.
+
+    **Root cause**: `BETTER_AUTH_SECRET` is used to sign and encrypt session tokens. Changing this value makes all existing tokens unverifiable, which signs out every active user immediately.
+
+    **Solution**: Plan secret rotations carefully. Announce scheduled maintenance if your application has active users. To rotate:
+
+    1. Generate a new secret: `openssl rand -base64 32`
+    2. Update `BETTER_AUTH_SECRET` in your deployment environment
+    3. Redeploy — all existing sessions will be invalidated on the next request
+
+    ```bash
+    openssl rand -base64 32
+    ```
+
+    <Warning>
+    There is no grace period or dual-secret support. All sessions are invalidated the moment the new secret is deployed.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="SUPABASE_SERVICE_ROLE_KEY exposed client-side — bypasses Row Level Security">
+    **Symptom**: You accidentally prefixed `SUPABASE_SERVICE_ROLE_KEY` with `VITE_` and it is now visible in the browser's network tab or bundled JavaScript.
+
+    **Root cause**: Vite exposes any environment variable prefixed with `VITE_` to the client bundle. The `SUPABASE_SERVICE_ROLE_KEY` bypasses Supabase Row Level Security entirely — if it reaches the browser, anyone can read or write any row in your database.
+
+    **Solution**: Remove the `VITE_` prefix immediately. This variable must only ever be used in server-side code:
+
+    ```env
+    # ❌ Never do this
+    VITE_SUPABASE_SERVICE_ROLE_KEY="eyJhbGci..."
+
+    # ✅ Correct — no VITE_ prefix
+    SUPABASE_SERVICE_ROLE_KEY="eyJhbGci..."
+    ```
+
+    If the key was exposed, rotate it immediately in your Supabase dashboard under **Project Settings → API → Regenerate service_role key**, then update your deployment environment variables and redeploy.
+  </Accordion>
+
+  <Accordion title="TanStack Start + Nitro version mismatch — SSR server crashes on startup">
+    **Symptom**: Running `pnpm dev` or a production build crashes with errors like `Cannot find module` or unexpected SSR behavior after updating packages.
+
+    **Root cause**: TanStack Start and Nitro v3 are tightly coupled. The `nitro` package is pinned to `3.0.x-beta` in `package.json`. Upgrading `@tanstack/react-start` or `@tanstack/react-router` without a matching Nitro version — or vice versa — breaks the SSR layer.
+
+    **Solution**: Do not run `pnpm update` across all packages. Update these packages individually and verify the build and tests pass after each change:
+
+    ```bash
+    # Check what version is currently pinned
+    cat package.json | grep nitro
+
+    # Restore pinned version if accidentally updated
+    pnpm add nitro@3.0.260415-beta
+    ```
+
+    Always consult the TanStack Start release notes before updating to understand which Nitro version is required.
+  </Accordion>
+
+  <Accordion title="Better Auth update adds new database columns — app crashes after upgrade">
+    **Symptom**: After running `pnpm update better-auth`, server functions start throwing database errors about missing columns.
+
+    **Root cause**: Better Auth's `organization` plugin and other plugins add columns to the `user`, `session`, `member`, and `organization` tables as the library evolves. Updating the package without pushing the updated schema leaves the database out of sync.
+
+    **Solution**: After every Better Auth update, check the changelog and push the schema:
+
+    ```bash
+    # 1. Review the changelog at https://better-auth.com/changelog
+    # 2. Push the updated schema
+    npx drizzle-kit push
+    ```
+
+    <Warning>
+    Never update Better Auth in a production environment without first testing the schema migration in a staging environment. New columns may have `NOT NULL` constraints that require a default value.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="Emails going to spam in production — domain not verified in Resend">
+    **Symptom**: Verification emails, password reset links, and invitation emails are delivered to users' spam or junk folders.
+
+    **Root cause**: Resend's sandbox allows sending from any address during development without domain verification. In production, email providers use SPF and DKIM records to verify sender legitimacy. Without these DNS records, emails fail authentication checks and are flagged as spam.
+
+    **Solution**: Verify your sending domain in the Resend dashboard:
+
+    1. Go to **Resend Dashboard → Domains → Add Domain**
+    2. Enter your sending domain (e.g., `yourdomain.com`)
+    3. Add the provided SPF and DKIM DNS records to your DNS provider
+    4. Wait for Resend to confirm verification (usually under 5 minutes)
+    5. Update `EMAIL_FROM` in your environment to use the verified domain:
+
+    ```env
+    EMAIL_FROM="RefactKit <noreply@yourdomain.com>"
+    ```
+
+    Do not use `@gmail.com`, `@yahoo.com`, or other shared domains as a sender — use a domain you control.
+  </Accordion>
+
+  <Accordion title="React 19 compatibility — third-party UI library fails to install or render">
+    **Symptom**: Installing a UI component library throws a peer dependency error requiring React 18, or components fail to render with hydration or hook errors.
+
+    **Root cause**: RefactKit uses React 19, which includes breaking changes from React 18. Many UI libraries have not yet updated their peer dependency declarations to support React 19, and some use internal React APIs that changed in version 19.
+
+    **Solution**: Do not install libraries that declare `react@^18` as a required peer dependency. Check the library's changelog for a React 19 compatibility release before adding it. If you need a component that is not in shadcn/ui, build it using Base UI primitives, which are already included and fully compatible:
+
+    ```bash
+    # Check peer deps before installing any new UI library
+    npm info <library-name> peerDependencies
+    ```
+
+    <Warning>
+    Never run `pnpm install --legacy-peer-deps` or force-install a React 18 library. Doing so may cause subtle hydration mismatches and SSR failures that are difficult to debug.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="SSR hydration mismatch — React warning about server/client content difference">
+    **Symptom**: The browser console shows a React warning like `Hydration failed because the server rendered HTML didn't match the client`. Parts of the UI may flash or reset on load.
+
+    **Root cause**: SSR renders the page on the server and sends HTML to the browser. React then "hydrates" that HTML by attaching event handlers. If the data or markup produced on the server differs from what React produces on the client, hydration fails. Common causes include reading browser-only globals (`window`, `localStorage`), using `Math.random()` or `Date.now()` directly in render, or having query cache data that differs between server and client.
+
+    **Solution**: Use `ensureQueryData` in route loaders to pre-populate the TanStack Query cache during SSR, so the client uses identical data:
+
+    ```typescript
+    // In your route loader — seeds the cache before SSR renders
+    loader: async ({ context, params }) => {
+      await context.queryClient.ensureQueryData(orgBySlugQuery(params.slug))
+    }
+    ```
+
+    For browser-only values, defer access to `useEffect` or use the `useIsClient` pattern:
+
+    ```typescript
+    const [isMounted, setIsMounted] = React.useState(false)
+    React.useEffect(() => setIsMounted(true), [])
+    if (!isMounted) return null
+    ```
+  </Accordion>
+
+  <Accordion title="Locale not persisting — language resets to default on page refresh">
+    **Symptom**: Switching the language with `setLocale()` works immediately, but the selected locale resets to English after a page reload or navigation.
+
+    **Root cause**: Locale state is held in React context. Without a cookie to persist the selection across requests, the server always falls back to the default locale during SSR and sends the wrong `lang` attribute in the HTML before the client can correct it.
+
+    **Solution**: The locale must be stored in a cookie so the server can read it during SSR. RefactKit's i18n system reads the `lk_locale` cookie via `getServerLocale()` in the root loader. Verify the cookie is being written when `setLocale` is called:
+
+    ```typescript
+    import Cookies from 'js-cookie'
+
+    export function setLocale(locale: Locale) {
+      Cookies.set('lk_locale', locale, { expires: 365, sameSite: 'lax' })
+      // then update i18next and React state
+    }
+    ```
+
+    If the cookie is being set but not read server-side, check that `getServerLocale()` reads the `lk_locale` cookie name and that the call happens in the root layout's loader before SSR renders.
+  </Accordion>
+</AccordionGroup>

@@ -1,0 +1,154 @@
+---
+title: "Quick Start: Install and Launch RefactKit in 5 Steps"
+description: "Learn how to clone, configure, and launch your first RefactKit multi-tenant SaaS application in under 10 minutes with this step-by-step guide."
+keywords: ["quickstart", "setup", "install", "refactkit", "pnpm", "supabase", "drizzle"]
+---
+
+This guide walks you through everything you need to go from zero to a running RefactKit application. By the end, you'll have a fully functional multi-tenant SaaS app with authentication, organizations, and file storage running locally against a real Supabase database.
+
+## Prerequisites
+
+Before you start, make sure you have:
+
+- **Node.js 20+** installed
+- **pnpm** — install with `npm install -g pnpm`
+- A **Supabase** account with a new PostgreSQL project ([supabase.com](https://supabase.com))
+- A **Resend** account for transactional email ([resend.com](https://resend.com))
+
+<Steps>
+
+<Step title="Clone and install">
+
+Clone the repository and install dependencies:
+
+```bash
+git clone https://github.com/RefactKit/RefactKit-Multitenancy.git
+cd RefactKit-Multitenancy
+pnpm install
+```
+
+</Step>
+
+<Step title="Configure your environment">
+
+Copy the example file to create your local environment:
+
+```bash
+cp .env.example .env.local
+```
+
+Then open `.env.local` and fill in each value. Here's where to find them:
+
+**Database (`DATABASE_URL`)**
+
+In your Supabase project, go to **Project Settings → Database → Connection string → URI**. Select the **Transaction pooler** tab and copy the string that uses port `6543`.
+
+```bash
+# Use port 6543 (Transaction pooler) — required for serverless environments
+DATABASE_URL="postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres"
+```
+
+**Supabase API (`VITE_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`)**
+
+Go to **Project Settings → API**:
+- Copy **Project URL** → `VITE_SUPABASE_URL`
+- Copy the `service_role` key → `SUPABASE_SERVICE_ROLE_KEY`
+
+<Warning>
+  `SUPABASE_SERVICE_ROLE_KEY` bypasses Row Level Security. Never expose it client-side and never prefix it with `VITE_`. It is server-only.
+</Warning>
+
+**Better Auth secret (`BETTER_AUTH_SECRET`)**
+
+Generate a cryptographically strong secret:
+
+```bash
+openssl rand -base64 32
+```
+
+Paste the output as `BETTER_AUTH_SECRET`. Set `BETTER_AUTH_URL` to `http://localhost:3000` for local development.
+
+**Email (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`)**
+
+RefactKit uses SMTP for transactional email. With Resend, the settings are:
+
+```bash
+SMTP_HOST="smtp.resend.com"
+SMTP_PORT=465
+SMTP_USER="resend"
+SMTP_PASSWORD="re_your_api_key_here"   # from Resend → API Keys
+EMAIL_FROM="Your App <noreply@yourdomain.com>"
+```
+
+<Note>
+  During development, Resend's sandbox works without a verified domain. For production, verify your sending domain under **Resend → Domains** to avoid emails landing in spam.
+</Note>
+
+See the [Environment Variables Reference](/environment-variables) for the full list of variables and where to find each one.
+
+</Step>
+
+<Step title="Push the database schema">
+
+Push the Drizzle schema to your Supabase PostgreSQL database:
+
+```bash
+npx drizzle-kit push
+```
+
+This creates all the tables that RefactKit needs — users, sessions, organizations, members, invitations, and gallery images. Run this command again any time you change `db/schema.ts`.
+
+<Tip>
+  After pushing, you can inspect your data visually with `npx drizzle-kit studio`, which opens a browser-based database editor at `https://local.drizzle.studio`.
+</Tip>
+
+</Step>
+
+<Step title="Set up Supabase Storage">
+
+RefactKit uses a Supabase Storage bucket called `avatars` for profile photos and organization logos. Open the **SQL Editor** in your Supabase dashboard and run:
+
+```sql
+-- Create the avatars bucket with public read access
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('avatars', 'avatars', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Allow anyone to read avatar images
+CREATE POLICY "Public Access" ON storage.objects
+FOR SELECT USING (bucket_id = 'avatars');
+```
+
+<Tip>
+  You can also create the bucket without SQL: go to **Supabase Dashboard → Storage → New bucket**, set the name to `avatars`, toggle it to **Public**, then add a SELECT policy manually.
+</Tip>
+
+</Step>
+
+<Step title="Start the dev server">
+
+Start the development server:
+
+```bash
+pnpm dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser. You'll see the RefactKit landing page. From there, sign up for an account and create your first organization to explore the full application.
+
+</Step>
+
+</Steps>
+
+## What's next
+
+<CardGroup cols={3}>
+  <Card title="Authentication" icon="lock" href="/concepts/authentication">
+    How Better Auth handles sign-up, sign-in, sessions, and OWASP security controls.
+  </Card>
+  <Card title="Organizations" icon="building" href="/concepts/organizations">
+    How multi-tenant workspaces work, including invitations and org switching.
+  </Card>
+  <Card title="Adding pages" icon="file-plus" href="/guides/adding-pages">
+    Step-by-step guide to adding new routes, server functions, and query options.
+  </Card>
+</CardGroup>

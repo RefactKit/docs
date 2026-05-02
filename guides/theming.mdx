@@ -1,0 +1,131 @@
+---
+title: "Customize Themes, Colors, and Design Tokens in RefactKit"
+description: "RefactKit uses shadcn/ui with Tailwind CSS v4 and CSS variables. Learn how to apply a custom theme preset, use design tokens, and support light and dark mode."
+keywords: ["theming", "shadcn/ui", "Tailwind CSS", "CSS variables", "dark mode", "design tokens", "Phosphor Icons"]
+---
+
+RefactKit's design system is built on shadcn/ui components, Tailwind CSS v4, and a set of semantic CSS variables defined in `src/styles/globals.css`. Every color, radius, and font in the UI maps to a CSS variable — so swapping the entire look of your application is a matter of replacing one set of variable values, either by applying a shadcn preset or by editing the variables directly.
+
+## How the theme system works
+
+Tailwind v4 introduces the `@theme` directive, which maps CSS variables to Tailwind utility classes. RefactKit's `globals.css` wires this up so that classes like `bg-primary` and `text-muted-foreground` resolve to the active CSS variable values at runtime:
+
+```css
+/* src/styles/globals.css */
+@theme {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-card: var(--card);
+  --color-sidebar: var(--sidebar);
+  /* ... and so on */
+}
+```
+
+The actual color values live in `:root` (light mode) and `.dark` (dark mode) blocks, expressed as `oklch()` values for wide color gamut support:
+
+```css
+:root {
+  --background: oklch(0.985 0 0);
+  --foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --radius: 0.625rem;
+}
+
+.dark {
+  --background: oklch(0.205 0 0);
+  --foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+}
+```
+
+When you apply a theme preset, it replaces these values. Nothing else in your codebase needs to change.
+
+## Apply a theme preset from shadcn
+
+The fastest way to change your brand colors is to generate a preset at [ui.shadcn.com](https://ui.shadcn.com/themes) and apply it with the shadcn CLI:
+
+```bash
+npx shadcn@latest apply --preset <your-preset-code>
+```
+
+This command overwrites the `:root` and `.dark` blocks in `globals.css` with the new color values. All components that use semantic tokens will update automatically on the next dev server reload.
+
+<Tip>
+Visit [ui.shadcn.com/themes](https://ui.shadcn.com/themes) to browse and preview available presets. Copy the preset code from the site and paste it into the CLI command above.
+</Tip>
+
+## Design system rules
+
+Following these rules keeps the UI consistent across all themes and ensures components render correctly in both light and dark mode.
+
+| Rule | Do | Don't |
+|------|----|-------|
+| **Colors** | `bg-primary`, `text-muted-foreground`, `border-border` | `bg-blue-500`, `dark:bg-slate-900` |
+| **Spacing** | `flex flex-col gap-4` | `space-y-4` |
+| **Dimensions** | `size-10` (sets equal width and height) | `w-10 h-10` |
+| **Icons** | `data-icon="inline-start"` attribute | Raw inline SVG |
+| **Themes** | CSS variables via `@theme` | Hardcoded `oklch()` or hex values in components |
+
+Using semantic tokens instead of raw color values is what makes theme switching instant. A component that uses `bg-primary` works correctly in every preset because the variable value changes, not the class name.
+
+## Light, dark, and system mode
+
+RefactKit uses `next-themes` to manage the color scheme. The `ThemeProvider` wraps the app in the root layout and reads the user's preference from `localStorage`. Three modes are available:
+
+- **Light** — forces the `:root` variable set
+- **Dark** — forces the `.dark` class on `<html>`, activating the dark variable set
+- **System** — follows `prefers-color-scheme` from the OS
+
+The custom `@custom-variant dark` directive in `globals.css` ensures Tailwind's `dark:` prefix works with the `.dark` class-based strategy:
+
+```css
+@custom-variant dark (&:is(.dark *));
+```
+
+Users can change their preference from **Settings → Appearance**. The choice persists across sessions via `localStorage`.
+
+## Icon systems
+
+RefactKit ships two icon libraries. Use them depending on the context:
+
+**Phosphor Icons** — for expressive, illustrative icons with multiple weights:
+
+```tsx
+import { House, GearSix, Users } from '@phosphor-icons/react'
+
+<House size={20} weight="duotone" />
+```
+
+**Lucide React** — for crisp, consistent UI icons in components, buttons, and navigation:
+
+```tsx
+import { LayoutDashboard, Settings, HardDrive } from 'lucide-react'
+
+<LayoutDashboard className="size-4" />
+```
+
+Both libraries are fully tree-shakeable — only the icons you import are included in the bundle. Use the `size-*` utility class for dimensions rather than explicit `w-` and `h-` classes, per the design system rules above.
+
+## Font system
+
+Three fonts are loaded in `globals.css` and controlled by the `--font-family` CSS variable. The active font switches based on the `[data-font]` attribute on `<html>`, which the Appearance settings page manages:
+
+| `data-font` value | Font | Use case |
+|-------------------|------|----------|
+| *(not set, LTR)* | Google Sans Flex Variable | Default for all LTR locales |
+| *(not set, RTL)* | Zain | Automatic for Arabic |
+| `google-sans` | Google Sans Flex Variable | Manual override |
+| `geist` | Geist Variable | Developer-oriented look |
+| `baloo` | Baloo Bhaijaan 2 | Rounded, friendly style |
+
+To add a custom font, import it at the top of `globals.css` and add a `[data-font]` rule that sets `--font-family`.

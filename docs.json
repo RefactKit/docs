@@ -1,0 +1,74 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "name": "RefactKit",
+  "theme": "almond",
+  "colors": {
+    "primary": "#f9f4f1",
+    "light": "#a79383",
+    "dark": "#64defc"
+  },
+  "favicon": "https://media.brand.dev/75ccb453-ac78-4734-96b0-750eaceda8d8.png",
+  "logo": {
+    "light": "https://media.brand.dev/ebf2a730-578e-4203-9bd7-d1bc4dfc7b4a.png",
+    "dark": "https://media.brand.dev/ebf2a730-578e-4203-9bd7-d1bc4dfc7b4a.png"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/RefactKit/RefactKit-Multitenancy"
+    }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "environment-variables"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/multitenancy",
+              "concepts/authentication",
+              "concepts/rbac",
+              "concepts/organizations"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/adding-pages",
+              "guides/server-functions",
+              "guides/file-uploads",
+              "guides/internationalization",
+              "guides/theming"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/database",
+              "configuration/email",
+              "configuration/storage",
+              "configuration/deployment"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/permissions",
+              "reference/tech-stack",
+              "reference/troubleshooting"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
